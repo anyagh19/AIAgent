@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Gemini + MCP Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 text-gray-800">
+    <div class="w-full mx-auto p-6">
+        <h1 class="text-2xl font-bold mb-4">AI Agent</h1>
+
+        <div class="bg-white rounded-lg shadow p-4 mb-6 h-[60vh] overflow-y-auto">
+            <% if (chatHistory.length===0) { %>
+                <p class="text-gray-400 italic">Start the conversation...</p>
+                <% } else { %>
+                    <% chatHistory.forEach(msg=> { %>
+                        <div class="mb-3 flex <%= msg.role === 'user' ? 'justify-end' : 'justify-start' %>">
+                            <div
+                                class="<%= msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-900' %> max-w-[80%] rounded-xl px-4 py-2 shadow">
+                                <div class="text-sm font-semibold mb-1">
+                                    <%= msg.role==='user' ? 'You' : 'AI' %>
+                                </div>
+                                <p class="text-base whitespace-pre-line">
+                                    <%= msg.parts[0].text %>
+                                </p>
+                            </div>
+                        </div>
+
+                        <% }) %>
+                            <% } %>
+        </div>
+
+        <form action="/ask" method="POST" class="flex gap-2">
+            <input type="text" name="message" placeholder="Type a message..." required
+                class="flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button type="submit"
+                class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Send</button>
+        </form>
+
+        <form action="/reset" method="POST" class="mt-4">
+            <button type="submit" class="text-sm text-red-600 hover:underline">Reset Chat</button>
+        </form>
+    </div>
+</body>
+
+</html>
