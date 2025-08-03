@@ -35,13 +35,14 @@ export async function apiResponse({ from, to, sub }) {
 
     // Nodemailer transport setup
     // Ensure nodemailer is installed: npm install nodemailer
+    const nodemailerUser = process.env.NODEMAILER_USER;
+    const nodemailerPass = process.env.NODEMAILER_PASS
     const transporter = nodemailer.createTransport({ // <--- Correct variable name
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false, 
+      host: "sandbox.smtp.mailtrap.io",
+      port: 2525,
       auth: {
-        user: "f4eb2a1ae70623",
-        pass: "28ce10bcdefdf7"
+        user: nodemailerUser,
+        pass: nodemailerPass
       }
     });
 
