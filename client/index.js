@@ -127,7 +127,7 @@ async function getGeminiResponse(userMessage) {
 
                 // Add the tool result to chat history
                 chatHistory.push({
-                    role: 'tool',
+                    role: 'model',
                     parts: [{ toolCode: toolCall.name, text: toolResultText }],
                 });
 

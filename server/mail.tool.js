@@ -12,6 +12,7 @@ export async function apiResponse({ from, to, sub }) {
     const payload = {
       contents: [
         {
+          role: "user",
           parts: [
             {
               text: `Generate a short email body for a subject: "${sub}"`, // Prompt Gemini to generate the email body

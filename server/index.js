@@ -6,6 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import z from "zod";
 import { createPost, getTweets } from "./mcp.tool.js";
 import { apiResponse } from "./mail.tool.js";
+import { analyzeScreenshot } from "./screenshot.tool.js";
 
 
 
@@ -99,7 +100,7 @@ app.post('/mcp', async (req, res) => {
       },
       async (input) => {
         const { from1_, to, sub } = input;
-        const response = await apiResponse({from:from1_, to, sub});
+        const response = await apiResponse({ from: from1_, to, sub });
 
         console.log("Email API response:", JSON.stringify(response, null, 2));
 
@@ -125,6 +126,37 @@ app.post('/mcp', async (req, res) => {
         };
       }
     );
+
+    server.tool(
+  "analyzeScreenshot",
+  "Take a screenshot of the desktop and generate a natural language analysis report",
+  {},
+  async () => {
+    const result = await analyzeScreenshot();
+
+    if (!result.success) {
+      return {
+        content: [
+          { type: "text", text: `❌ Failed to analyze screenshot: ${result.error}` },
+        ],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `📸 Screenshot analysis report:\n${result.report}`,
+        },
+      ],
+    };
+  }
+);
+
+
+
+
 
 
     // Connect to the MCP server
