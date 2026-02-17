@@ -9,62 +9,80 @@
 </head>
 
 <body class="bg-[#f7f7f8] flex flex-col h-screen font-sans text-gray-900">
-  <!-- Chat Container -->
-  <main id="chat-container"
-    class="flex-1 overflow-y-auto w-full mx-auto max-w-3xl px-4 sm:px-6 py-6 space-y-6 pb-32">
 
-    <% if (chatHistory.length === 0) { %>
+  <main id="chat-container" class="flex-1 overflow-y-auto w-full mx-auto max-w-3xl px-4 sm:px-6 py-6 space-y-6 pb-32">
+
+    <% if (chatHistory.length===0) { %>
       <div class="flex items-center justify-center h-full">
-        <p class="text-gray-400 text-sm">Start a conversation with your AI agent...</p>
+        <p class="text-gray-400 text-sm">
+          Start a conversation with your AI agent...
+        </p>
       </div>
-    <% } else { %>
-      <% chatHistory.forEach((msg, i) => { %>
-        <div class="w-full">
-          <div class="<%= msg.role === 'user' ? 'bg-white border border-gray-200' : 'bg-[#f7f7f8]' %> rounded-xl p-6 flex gap-4 items-start shadow-sm">
-            <!-- Avatar -->
-            <div class="w-10 h-10 flex items-center justify-center rounded-full shrink-0 
-                        <%= msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700' %>">
-              <%= msg.role === 'user' ? 'You' : 'AI' %>
-            </div>
+      <% } else { %>
 
-            <!-- Message Content -->
-            <div class="flex-1">
-              <div class="text-[15px] leading-relaxed whitespace-pre-line">
-                <%= msg.parts[0].text %>
+        <% chatHistory.forEach((msg)=> { %>
+          <% const messageText=msg.parts[0].text; %>
+
+            <div class="w-full">
+              <div class="<%= msg.role === 'user' ? 
+              'bg-white border border-gray-200' : 
+              'bg-[#f7f7f8]' %> 
+              rounded-xl p-6 flex gap-4 items-start shadow-sm">
+
+                <!-- Avatar -->
+                <div class="w-10 h-10 flex items-center justify-center rounded-full shrink-0 
+              <%= msg.role === 'user' ? 
+              'bg-blue-600 text-white' : 
+              'bg-gray-200 text-gray-700' %>">
+                  <%= msg.role==='user' ? 'You' : 'AI' %>
+                </div>
+
+                <!-- Message -->
+                <div class="flex-1">
+                  <div class="text-[15px] leading-relaxed whitespace-pre-line">
+                    <%= messageText %>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      <% }) %>
-    <% } %>
+
+            <% }) %>
+
+              <% } %>
   </main>
 
-  <!-- Message Input (fixed bottom like ChatGPT) -->
-  <footer
-    class="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-[#f7f7f8] via-[#f7f7f8]/80 to-transparent px-4 sm:px-6 py-4">
-    <form action="/ask" method="POST" class="max-w-3xl mx-auto flex items-center gap-3 bg-white border border-gray-300 rounded-2xl px-4 py-2 shadow-sm">
-      <textarea name="message" rows="1" placeholder="Message your AI agent..."
-        class="flex-1 resize-none outline-none text-[15px] leading-snug p-2 bg-transparent text-gray-900 placeholder-gray-400 max-h-32"
-        required></textarea>
+  <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-t 
+      from-[#f7f7f8] via-[#f7f7f8]/80 to-transparent px-4 sm:px-6 py-4">
 
-      <button type="submit"
-        class="bg-black hover:bg-gray-800 text-white p-2.5 rounded-xl transition flex items-center justify-center shrink-0">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-          stroke-width="1.8" stroke="currentColor" class="w-5 h-5">
-          <path stroke-linecap="round" stroke-linejoin="round"
-            d="M4.5 12l15-6-4.5 6 4.5 6-15-6z" />
-        </svg>
+    <form action="/ask" method="POST" class="max-w-3xl mx-auto flex items-center gap-3 
+      bg-white border border-gray-300 rounded-2xl px-4 py-2 shadow-sm">
+
+      <textarea name="message" rows="1" placeholder="Message your AI agent..." class="flex-1 resize-none outline-none text-[15px] 
+        leading-snug p-2 bg-transparent" required></textarea>
+
+      <button type="submit" class="bg-black hover:bg-gray-800 text-white 
+        p-2.5 rounded-xl transition">
+        Send
       </button>
     </form>
+
     <p class="text-center text-[12px] text-gray-400 mt-2">
       AI may make mistakes — verify critical information.
     </p>
   </footer>
 
-  <!-- Scroll + Auto Focus -->
-  <script>
-    const container = document.getElementById('chat-container');
-    container.scrollTop = container.scrollHeight;
-  </script>
+<script>
+  // Auto scroll
+  const container = document.getElementById('chat-container');
+  container.scrollTop = container.scrollHeight;
+
+  // Handle redirect - now using server-side variable instead of hidden element
+  <% if (redirectUrl) { %>
+    console.log("Opening redirect URL: <%= redirectUrl %>");
+    window.open("<%= redirectUrl %>", "_blank");
+  <% } %>
+</script>
+
 </body>
+
 </html>
