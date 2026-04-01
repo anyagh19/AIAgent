@@ -2,6 +2,7 @@ import express from 'express';
 import { config } from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import session from 'express-session';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { GoogleGenAI } from '@google/genai';
@@ -14,13 +15,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 5000; // Port for your web server
+const PORT = 5000;
+let getToken = () => null;
 
 // Express configuration
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Session configuration
+app.use(session({
+  secret: "myclientsecretkey",
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: false,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
 
 // Gemini configuration
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -28,16 +42,23 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 // MCP Client configuration
 let mcpClient = null;
 let tools = [];
-const chatHistory = [];
+const chatHistories = {}; // Store chat history per user session
 let pendingRedirect = null;
 let isConnecting = false;
 
+// --- Helper function to get/initialize chat history ---
+function getChatHistory(sessionId) {
+    if (!chatHistories[sessionId]) {
+        chatHistories[sessionId] = [];
+    }
+    return chatHistories[sessionId];
+}
+
 // --- MCP Client Connection Management ---
 
-async function connectMCPClient() {
+async function connectMCPClient(token) {
     if (isConnecting) {
         console.log("Already connecting to MCP server, waiting...");
-        // Wait for the current connection attempt to complete
         while (isConnecting) {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
@@ -48,24 +69,26 @@ async function connectMCPClient() {
 
     try {
         console.log("Connecting to MCP server (http://localhost:3000/mcp)...");
-        
-        // Create a new client instance
-        mcpClient = new Client({ 
-            name: 'express-web-client', 
-            version: '1.0.0' 
+
+        mcpClient = new Client({
+            name: 'express-web-client',
+            version: '1.0.0'
         });
 
-        // Create transport
         const transport = new StreamableHTTPClientTransport(
-            new URL('http://localhost:3000/mcp')
+            new URL('http://localhost:3000/mcp'),
+            {
+                requestInit: {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            }
         );
 
-        // Connect to the MCP server
         await mcpClient.connect(transport);
-        
         console.log("Connected to MCP server.");
 
-        // Fetch the list of tools
         const toolsList = await mcpClient.listTools();
         tools = toolsList.tools.map(tool => ({
             name: tool.name,
@@ -76,7 +99,7 @@ async function connectMCPClient() {
                 required: tool.inputSchema.required || [],
             },
         }));
-        
+
         console.log("Tools loaded:", tools.map(t => t.name));
         isConnecting = false;
         return true;
@@ -90,10 +113,8 @@ async function connectMCPClient() {
     }
 }
 
-// Function to ensure MCP client is connected
-async function ensureMCPConnection() {
+async function ensureMCPConnection(token) {
     if (mcpClient) {
-        // Test if connection is still alive
         try {
             await mcpClient.listTools();
             return true;
@@ -102,21 +123,20 @@ async function ensureMCPConnection() {
             mcpClient = null;
         }
     }
-    
-    return await connectMCPClient();
+
+    return await connectMCPClient(token);
 }
 
 // --- AI Logic Function ---
 
-async function getGeminiResponse(userMessage) {
-    // Clear any previous redirect
+async function getGeminiResponse(userMessage, sessionId, token) {
     pendingRedirect = null;
+    const chatHistory = getChatHistory(sessionId);
 
-    // Ensure MCP connection before processing
-    const isConnected = await ensureMCPConnection();
-    
+    const isConnected = await ensureMCPConnection(token);
+
     if (!isConnected) {
-        const errorMessage = "Unable to connect to the MCP server. Please ensure the server is running on port 3000.";
+        const errorMessage = "Unable to connect to the MCP server. Please ensure you're logged in and the server is running.";
         chatHistory.push({
             role: 'model',
             parts: [{ text: errorMessage, type: 'text' }],
@@ -124,7 +144,6 @@ async function getGeminiResponse(userMessage) {
         return errorMessage;
     }
 
-    // Add user's message to chat history
     chatHistory.push({
         role: 'user',
         parts: [{ text: userMessage, type: 'text' }],
@@ -133,7 +152,7 @@ async function getGeminiResponse(userMessage) {
     try {
         let lastPart = null;
         let responseText = null;
-        let maxIterations = 10; // Prevent infinite loops
+        let maxIterations = 10;
         let iterations = 0;
 
         while (iterations < maxIterations) {
@@ -151,7 +170,7 @@ async function getGeminiResponse(userMessage) {
 
             if (!candidate || !candidate.content) {
                 console.error("Invalid Gemini response:", JSON.stringify(response, null, 2));
-                
+
                 if (candidate && candidate.finishReason === 'STOP') {
                     responseText = "Task completed successfully!";
                     chatHistory.push({
@@ -160,7 +179,7 @@ async function getGeminiResponse(userMessage) {
                     });
                     break;
                 }
-                
+
                 throw new Error("Gemini returned unexpected structure");
             }
 
@@ -180,14 +199,12 @@ async function getGeminiResponse(userMessage) {
                 const toolCall = lastPart.functionCall;
                 console.log(`AI called tool: ${toolCall.name} with args: ${JSON.stringify(toolCall.args)}`);
 
-                // Add the tool call to chat history
                 chatHistory.push({
                     role: 'model',
                     parts: [{ functionCall: toolCall }],
                 });
 
-                // Ensure connection before calling tool
-                await ensureMCPConnection();
+                await ensureMCPConnection(token);
 
                 if (!mcpClient) {
                     const errorMsg = "Lost connection to MCP server. Please try again.";
@@ -204,7 +221,6 @@ async function getGeminiResponse(userMessage) {
                 }
 
                 try {
-                    // Execute the tool via the MCP client
                     const toolResult = await mcpClient.callTool({
                         name: toolCall.name,
                         arguments: toolCall.args,
@@ -213,13 +229,11 @@ async function getGeminiResponse(userMessage) {
                     const toolResultText = toolResult.content?.[0]?.text || "Tool executed successfully";
                     console.log(`Tool result: ${toolResultText}`);
 
-                    // Handle redirect metadata
                     if (toolResult.metadata?.action === "open_tab") {
                         pendingRedirect = toolResult.metadata.url;
                         console.log("Redirect detected and stored:", pendingRedirect);
                     }
 
-                    // Add the tool result to chat history
                     chatHistory.push({
                         role: 'function',
                         parts: [{
@@ -232,15 +246,14 @@ async function getGeminiResponse(userMessage) {
 
                 } catch (toolError) {
                     console.error("Tool execution error:", toolError);
-                    
-                    // Add error to chat history so Gemini can respond
+
                     chatHistory.push({
                         role: 'function',
                         parts: [{
                             functionResponse: {
                                 name: toolCall.name,
-                                response: { 
-                                    result: `Error executing tool: ${toolError.message}` 
+                                response: {
+                                    result: `Error executing tool: ${toolError.message}`
                                 }
                             }
                         }],
@@ -273,7 +286,7 @@ async function getGeminiResponse(userMessage) {
         }
 
         return responseText;
-        
+
     } catch (error) {
         console.error("Error during Gemini interaction or tool execution:", error);
         const errorMessage = "Oops! Something went wrong while processing your request. Please try again.";
@@ -285,25 +298,128 @@ async function getGeminiResponse(userMessage) {
     }
 }
 
+// --- Middleware ---
+const requireLogin = (req, res, next) => {
+    if (!req.session.token) {
+        return res.redirect("/login");
+    }
+    next();
+};
+
 // --- Express Routes ---
 
-app.get('/', (req, res) => {
-    res.render('index', { 
+// Login page
+app.get('/login', (req, res) => {
+    res.render('login');
+});
+
+// Signup page
+app.get('/signup', (req, res) => {
+    res.render('signup');
+});
+
+// Login POST
+app.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        const response = await fetch("http://localhost:3000/login", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ email, password })
+        });
+
+        const data = await response.json();
+
+        if (data.token) {
+            req.session.token = data.token;
+            
+            // Initialize chat history for this session
+            const chatHistory = getChatHistory(req.sessionID);
+            chatHistory.push({
+                role: 'model',
+                parts: [{ text: "Hello! I'm your AI assistant. How can I help you today?", type: 'text' }],
+            });
+            
+            return res.redirect("/");
+        }
+
+        res.render('login', { error: data.message || "Login failed" });
+
+    } catch (error) {
+        console.error("Login error:", error);
+        res.render('login', { error: "Server error. Please try again." });
+    }
+});
+
+// Signup POST
+app.post('/signup', async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        const response = await fetch("http://localhost:3000/signup", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            res.render('signup', { success: data.message });
+        } else {
+            res.render('signup', { error: data.message || "Signup failed" });
+        }
+
+    } catch (error) {
+        console.error("Signup error:", error);
+        res.render('signup', { error: "Server error. Please try again." });
+    }
+});
+
+// Logout
+app.get("/logout", (req, res) => {
+    const sessionId = req.sessionID;
+    
+    // Clear chat history for this session
+    if (chatHistories[sessionId]) {
+        delete chatHistories[sessionId];
+    }
+    
+    req.session.destroy(() => {
+        res.redirect("/login");
+    });
+});
+
+// Main chat page (protected)
+app.get('/', requireLogin, (req, res) => {
+    const chatHistory = getChatHistory(req.sessionID);
+    
+    res.render('index', {
         chatHistory,
-        redirectUrl: pendingRedirect 
+        redirectUrl: pendingRedirect
     });
     pendingRedirect = null;
 });
 
-app.post('/ask', async (req, res) => {
+// Ask endpoint (protected)
+app.post('/ask', requireLogin, async (req, res) => {
     const userMessage = req.body.message;
+
     if (userMessage) {
-        await getGeminiResponse(userMessage);
+        await getGeminiResponse(userMessage, req.sessionID, req.session.token);
     }
+
     res.redirect('/');
 });
 
-app.post('/reset', (req, res) => {
+// Reset chat (protected)
+app.post('/reset', requireLogin, (req, res) => {
+    const chatHistory = getChatHistory(req.sessionID);
     chatHistory.length = 0;
     pendingRedirect = null;
     chatHistory.push({
@@ -315,24 +431,6 @@ app.post('/reset', (req, res) => {
 
 // --- Server Initialization ---
 
-(async () => {
-    // Try to connect to MCP server
-    const connected = await connectMCPClient();
-    
-    if (connected) {
-        chatHistory.push({
-            role: 'model',
-            parts: [{ text: "Hello there! I'm an AI assistant. How can I help you today?", type: 'text' }],
-        });
-    } else {
-        chatHistory.push({
-            role: 'model',
-            parts: [{ text: "⚠️ Warning: Could not connect to the MCP server. Some features may be unavailable. Please ensure your MCP server is running on port 3000.", type: 'text' }],
-        });
-    }
-
-    // Start web server regardless of MCP connection status
-    app.listen(PORT, () => {
-        console.log(`Web server running at http://localhost:${PORT}`);
-    });
-})();
+app.listen(PORT, () => {
+    console.log(`Web server running at http://localhost:${PORT}`);
+});

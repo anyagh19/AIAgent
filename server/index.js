@@ -1,3 +1,12 @@
+import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import session from "express-session";
+
+mongoose.connect("mongodb+srv://Aniket:Aniket123@cluster0.3nwumy2.mongodb.net/mcpauth")
+.then(() => console.log("MongoDB Connected"))
+.catch(err => console.log(err));
+
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -9,16 +18,44 @@ import { apiResponse } from "./mail.tool.js";
 import { analyzeScreenshot } from "./screenshot.tool.js";
 import { browserSearch } from "./browser.tool.js";
 import { computerControl } from "./computer.tool.js";
-
+import User from './models/user.js';
 
 const app = express();
 app.use(express.json());
+
+const SECRET = "mysecretkey";
+
+// Session configuration
+app.use(session({
+  secret: "mysecretkey",
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: false, // Set to true if using HTTPS
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+// Auth middleware for MCP endpoint
+const authMiddleware = (req, res, next) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+
+  if (!token) return res.status(401).json({ error: "No token provided" });
+
+  try {
+    const decoded = jwt.verify(token, SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    res.status(401).json({ error: "Invalid token" });
+  }
+};
 
 // Map to store transports by session ID
 const transports = {};
 
 // Handle POST requests for client-to-server communication
-app.post('/mcp', async (req, res) => {
+app.post('/mcp', authMiddleware, async (req, res) => {
   // Check for existing session ID
   const sessionId = req.headers['mcp-session-id'];
   let transport;
@@ -34,7 +71,6 @@ app.post('/mcp', async (req, res) => {
         // Store the transport by session ID
         transports[sessionId] = transport;
       },
-
     });
 
     // Clean up transport when closed
@@ -44,12 +80,13 @@ app.post('/mcp', async (req, res) => {
         console.log(`[app.js] Session closed and transport removed: ${transport.sessionId}`);
       }
     };
+    
+    // ... set up server resources, tools, and prompts ...
     const server = new McpServer({
       name: "example-server",
       version: "1.0.0"
     });
 
-    // ... set up server resources, tools, and prompts ...
     server.tool(
       "addTwoNumbers",
       "Add two numbers",
@@ -209,7 +246,6 @@ app.post('/mcp', async (req, res) => {
       }
     );
 
-    // NEW: Computer Control Tool
     server.tool(
       "computerControl",
       "Control the computer to fulfill user commands. Use this to click, type, open apps, take screenshots, and interact with the desktop. This is your primary tool for tasks like 'open WhatsApp', 'search email', 'click on button', etc.",
@@ -267,8 +303,6 @@ app.post('/mcp', async (req, res) => {
       }
     );
 
-
-
     // Connect to the MCP server
     await server.connect(transport);
   } else {
@@ -301,9 +335,65 @@ const handleSessionRequest = async (req, res) => {
 };
 
 // Handle GET requests for server-to-client notifications via SSE
-app.get('/mcp', handleSessionRequest);
+app.get('/mcp', authMiddleware, handleSessionRequest);
 
 // Handle DELETE requests for session termination
-app.delete('/mcp', handleSessionRequest);
+app.delete('/mcp', authMiddleware, handleSessionRequest);
 
-app.listen(3000);
+// ============== AUTH ROUTES ==============
+
+// Signup route
+app.post("/signup", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = new User({
+      email,
+      password: hashedPassword
+    });
+
+    await user.save();
+
+    res.json({ message: "Signup successful" });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Login route
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const token = jwt.sign({ userId: user._id, email: user.email }, SECRET, {
+      expiresIn: "24h"
+    });
+
+    res.json({ token, message: "Login successful" });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.listen(3000, () => {
+  console.log("Server running on http://localhost:3000");
+});
