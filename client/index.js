@@ -16,7 +16,6 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 5000;
-let getToken = () => null;
 
 // Express configuration
 app.set('view engine', 'ejs');
@@ -27,17 +26,83 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Session configuration
 app.use(session({
-  secret: "myclientsecretkey",
-  resave: false,
-  saveUninitialized: false,
-  cookie: { 
-    secure: false,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+    secret: "myclientsecretkey",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: false,
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
 }));
 
-// Gemini configuration
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// ===================== GEMINI API KEY ROTATION =====================
+const rawKeys = process.env.GEMINI_API_KEYS
+  ? process.env.GEMINI_API_KEYS.split(',').map(k => k.trim()).filter(k => k.length > 0)
+  : [process.env.GEMINI_API_KEY].filter(Boolean);
+
+// Filter out obviously invalid keys (Gemini keys start with AIza)
+const validKeys = rawKeys.filter(k => /^AIza[ -~]+$/.test(k));
+
+if (validKeys.length === 0) {
+  console.error('❌ No valid Gemini API keys found. Set GEMINI_API_KEYS or GEMINI_API_KEY in .env');
+  console.error('   Expected format: AIza... (each key starts with "AIza")');
+  process.exit(1);
+}
+
+console.log(`🔑 Loaded ${validKeys.length} Gemini API key(s)`);
+validKeys.forEach((k, i) => {
+  console.log(`   Key ${i + 1}: ${k.slice(0, 12)}...${k.slice(-4)}`);
+});
+
+const keyManager = {
+  keys: validKeys,
+  currentIndex: 0,
+  rateLimitedUntil: {},   // key -> timestamp when cooldown ends
+  invalidKeys: new Set(), // permanently skip these
+
+  getAvailableKey() {
+    const now = Date.now();
+    // Try all keys, skipping rate‑limited and known‑invalid ones
+    for (let i = 0; i < this.keys.length; i++) {
+      const idx = (this.currentIndex + i) % this.keys.length;
+      const key = this.keys[idx];
+      if (this.invalidKeys.has(key)) continue;
+      if (!this.rateLimitedUntil[key] || this.rateLimitedUntil[key] <= now) {
+        this.currentIndex = idx;
+        return key;
+      }
+    }
+    // All keys are either rate‑limited or invalid – fallback to the first non‑invalid
+    for (let key of this.keys) {
+      if (!this.invalidKeys.has(key)) return key;
+    }
+    return this.keys[0]; // last resort
+  },
+
+  markRateLimited(key, cooldownMs = 60_000) {
+    this.rateLimitedUntil[key] = Date.now() + cooldownMs;
+    console.warn(`[KeyRotation] Key ${key.slice(0,12)}... rate‑limited. Cooldown until ${new Date(this.rateLimitedUntil[key]).toLocaleTimeString()}`);
+    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+  },
+
+  markInvalid(key) {
+    this.invalidKeys.add(key);
+    console.error(`[KeyRotation] Key ${key.slice(0,12)}... marked as INVALID and will be skipped permanently.`);
+    // Remove from rate‑limited map
+    delete this.rateLimitedUntil[key];
+    this.currentIndex = (this.currentIndex + 1) % this.keys.length;
+  },
+
+  isAllInvalid() {
+    return this.keys.every(k => this.invalidKeys.has(k));
+  }
+};
+
+// Helper to create a new AI client with a given key
+function createGeminiClient(apiKey) {
+  return new GoogleGenAI({ apiKey });
+}
+// ===============================================================
 
 // MCP Client configuration
 let mcpClient = null;
@@ -158,13 +223,60 @@ async function getGeminiResponse(userMessage, sessionId, token) {
         while (iterations < maxIterations) {
             iterations++;
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: chatHistory,
-                config: {
-                    tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined,
-                },
-            });
+            // ===== RETRY WITH MULTIPLE KEYS ON RATE LIMIT / INVALID =====
+            let geminiResponse;
+            let attempt = 0;
+            const maxAttempts = keyManager.keys.length * 3; // try a bit more
+
+            while (attempt < maxAttempts) {
+                const currentKey = keyManager.getAvailableKey();
+                const ai = createGeminiClient(currentKey);
+                try {
+                    geminiResponse = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: chatHistory,
+                        config: {
+                            tools: tools.length > 0 ? [{ functionDeclarations: tools }] : undefined,
+                        },
+                    });
+                    break; // success – exit retry loop
+                } catch (apiError) {
+                    const msg = apiError.message || '';
+                    const isRateLimit =
+                        apiError.status === 429 ||
+                        /quota|rate|exceeded/i.test(msg);
+
+                    const isInvalidKey =
+                        apiError.status === 400 &&
+                        (/api key not valid/i.test(msg) ||
+                         /invalid_argument/i.test(msg) ||
+                         /api_key_invalid/i.test(msg));
+
+                    if (isRateLimit) {
+                        keyManager.markRateLimited(currentKey);
+                        attempt++;
+                        console.log(`[KeyRotation] Retrying with next key (attempt ${attempt}/${maxAttempts})`);
+                    } else if (isInvalidKey) {
+                        // Permanently skip this invalid key
+                        keyManager.markInvalid(currentKey);
+                        attempt++;
+                        if (keyManager.isAllInvalid()) {
+                            throw new Error('All Gemini API keys are invalid. Please check your .env file.');
+                        }
+                        console.log(`[KeyRotation] Skipping invalid key, trying next (attempt ${attempt}/${maxAttempts})`);
+                    } else {
+                        // Unknown error – throw immediately
+                        throw apiError;
+                    }
+                }
+            }
+
+            if (!geminiResponse) {
+                throw new Error('All Gemini API keys are currently rate‑limited or invalid. Please try again later.');
+            }
+
+            const response = geminiResponse;
+            // =================================================
 
             const candidate = response?.candidates?.[0];
 
@@ -335,14 +447,14 @@ app.post('/login', async (req, res) => {
 
         if (data.token) {
             req.session.token = data.token;
-            
+
             // Initialize chat history for this session
             const chatHistory = getChatHistory(req.sessionID);
             chatHistory.push({
                 role: 'model',
                 parts: [{ text: "Hello! I'm your AI assistant. How can I help you today?", type: 'text' }],
             });
-            
+
             return res.redirect("/");
         }
 
@@ -384,12 +496,12 @@ app.post('/signup', async (req, res) => {
 // Logout
 app.get("/logout", (req, res) => {
     const sessionId = req.sessionID;
-    
+
     // Clear chat history for this session
     if (chatHistories[sessionId]) {
         delete chatHistories[sessionId];
     }
-    
+
     req.session.destroy(() => {
         res.redirect("/login");
     });
@@ -398,7 +510,7 @@ app.get("/logout", (req, res) => {
 // Main chat page (protected)
 app.get('/', requireLogin, (req, res) => {
     const chatHistory = getChatHistory(req.sessionID);
-    
+
     res.render('index', {
         chatHistory,
         redirectUrl: pendingRedirect
@@ -409,11 +521,23 @@ app.get('/', requireLogin, (req, res) => {
 // Ask endpoint (protected)
 app.post('/ask', requireLogin, async (req, res) => {
     const userMessage = req.body.message;
+    const isAjax = req.headers.accept === 'application/json' || req.query.ajax === '1';
 
-    if (userMessage) {
-        await getGeminiResponse(userMessage, req.sessionID, req.session.token);
+    if (!userMessage) {
+        return isAjax ? res.json({ error: 'No message' }) : res.redirect('/');
     }
 
+    const responseText = await getGeminiResponse(userMessage, req.sessionID, req.session.token);
+
+    if (isAjax) {
+        // Return JSON for frontend dynamic update
+        return res.json({
+            response: responseText,
+            redirectUrl: pendingRedirect || null
+        });
+    }
+
+    // Traditional form submit
     res.redirect('/');
 });
 
