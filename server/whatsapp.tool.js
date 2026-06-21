@@ -1,153 +1,212 @@
-// whatsapp_tool.js
-// Uses whatsapp-web.js for reliable WhatsApp messaging
-// Run `npm install whatsapp-web.js qrcode-terminal` to install
+import { keyboard, Key } from "@nut-tree-fork/nut-js";
+import { windowManager } from "node-window-manager";
+import { exec } from "child_process";
+import { promisify } from "util";
 
-import pkg from 'whatsapp-web.js';
-import qrcode from 'qrcode-terminal';
-import path from 'path';
-import fs from 'fs';
+const execAsync = promisify(exec);
 
-const { Client, LocalAuth, MessageMedia } = pkg;
+const WHATSAPP_APP_ID = "5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App";
 
-let client = null;
-let clientReady = false;
-let qrShown = false;
+// ─── Utility ──────────────────────────────────────────────────────────────────
 
-// ── Initialize WhatsApp client (singleton) ───────────────────────────────────
-async function getClient() {
-  if (client && clientReady) return client;
-
-  client = new Client({
-    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
-    puppeteer: {
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    },
-  });
-
-  client.on('qr', (qr) => {
-    if (!qrShown) {
-      console.log('\n🔐 Scan this QR code in WhatsApp (Linked Devices):\n');
-      qrcode.generate(qr, { small: true });
-      qrShown = true;
-    }
-  });
-
-  client.on('ready', () => {
-    clientReady = true;
-    console.log('✅ WhatsApp client ready');
-  });
-
-  client.on('disconnected', () => {
-    clientReady = false;
-    client = null;
-  });
-
-  await client.initialize();
-
-  // Wait until ready (max 60 seconds)
-  if (!clientReady) {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('WhatsApp login timeout (60s). Please scan the QR code.')), 60000);
-      client.once('ready', () => { clearTimeout(timeout); resolve(); });
-    });
-  }
-
-  return client;
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ── Resolve contact name → phone number ─────────────────────────────────────
-async function resolveContact(wa, nameOrNumber) {
-  // If it looks like a number (with optional + and digits), use directly
-  if (/^\+?[\d\s\-()]{7,}$/.test(nameOrNumber)) {
-    const cleaned = nameOrNumber.replace(/[\s\-()]/g, '');
-    const number = cleaned.startsWith('+') ? cleaned.slice(1) : cleaned;
-    return `${number}@c.us`;
-  }
+/** Press a key combo (e.g. Ctrl+F) then release in reverse order */
+async function pressCombo(...keys) {
+  for (const k of keys) await keyboard.pressKey(k);
+  for (const k of [...keys].reverse()) await keyboard.releaseKey(k);
+}
 
-  // Otherwise search contacts by display name (case-insensitive)
-  const contacts = await wa.getContacts();
-  const match = contacts.find(
-    (c) =>
-      c.name?.toLowerCase().includes(nameOrNumber.toLowerCase()) ||
-      c.pushname?.toLowerCase().includes(nameOrNumber.toLowerCase())
-  );
+// ─── Core: open WhatsApp window and wait for full load ────────────────────────
 
-  if (!match) {
-    throw new Error(
-      `Contact "${nameOrNumber}" not found. Use their full name or phone number with country code (e.g. +919876543210).`
+async function openWhatsApp() {
+  // Check if WhatsApp is already open
+  let whatsapp = windowManager
+    .getWindows()
+    .find(w => w.getTitle().toLowerCase().includes("whatsapp"));
+
+  if (!whatsapp) {
+    console.log("🚀 Launching WhatsApp...");
+    await execAsync(
+      `explorer.exe shell:AppsFolder\\${WHATSAPP_APP_ID}`
     );
-  }
 
-  return match.id._serialized;
-}
-
-// ── Send text message ────────────────────────────────────────────────────────
-export async function sendWhatsAppMessage(contactName, message) {
-  try {
-    const wa = await getClient();
-    const chatId = await resolveContact(wa, contactName);
-    await wa.sendMessage(chatId, message);
-
-    return {
-      content: [{ type: 'text', text: `✅ Message sent to "${contactName}" on WhatsApp.` }],
-    };
-  } catch (err) {
-    return {
-      content: [{ type: 'text', text: `❌ WhatsApp error: ${err.message}` }],
-      isError: true,
-    };
-  }
-}
-
-// ── Send file / image / document ─────────────────────────────────────────────
-export async function sendWhatsAppFile(contactName, filePath, caption = '') {
-  try {
-    const wa = await getClient();
-    const chatId = await resolveContact(wa, contactName);
-
-    const absolutePath = path.resolve(filePath);
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error(`File not found: ${absolutePath}`);
+    // Poll until the window appears (max 30 seconds)
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      whatsapp = windowManager
+        .getWindows()
+        .find(w => w.getTitle().toLowerCase().includes("whatsapp"));
+      if (whatsapp) {
+        console.log("✅ WhatsApp window detected");
+        break;
+      }
+      await sleep(1000);
     }
+  }
 
-    const media = MessageMedia.fromFilePath(absolutePath);
-    await wa.sendMessage(chatId, media, { caption });
+  if (!whatsapp) {
+    throw new Error("WhatsApp window not found after 30 seconds");
+  }
+
+  // Bring to front
+  try {
+    whatsapp.restore?.();
+    whatsapp.bringToTop?.();
+  } catch (err) {
+    console.log("⚠️  Window activation warning:", err.message);
+  }
+
+  // Wait for chats/UI to fully render
+  console.log("⏳ Waiting 10s for WhatsApp to fully load...");
+  await sleep(10000);
+
+  return whatsapp;
+}
+
+// ─── Core: search for a contact and open chat ─────────────────────────────────
+
+async function openChat(contactName) {
+  await openWhatsApp();
+
+  console.log(`🔍 Searching for contact: "${contactName}"`);
+
+  // Step 1 — Open the search panel with Ctrl+F
+  await pressCombo(Key.LeftControl, Key.F);
+  console.log("✅ Search panel opened (Ctrl+F)");
+  await sleep(2500);
+
+  // Step 2 — Clear any leftover text in the search box
+  await pressCombo(Key.LeftControl, Key.A);
+  await sleep(300);
+  await keyboard.pressKey(Key.Backspace);
+  await keyboard.releaseKey(Key.Backspace);
+  await sleep(500);
+
+  // Step 3 — Type the contact name
+  console.log(`⌨️  Typing: "${contactName}"`);
+  await keyboard.type(contactName);
+
+  // Step 4 — Wait for search results to fully populate
+  await sleep(4000);
+
+  // Step 5 — ⚠️ FIX: Press Down arrow to highlight the first result
+  //           Without this, Enter does nothing in WhatsApp Desktop
+  console.log("⬇️  Selecting first search result...");
+  await keyboard.pressKey(Key.Down);
+  await keyboard.releaseKey(Key.Down);
+  await sleep(800);
+
+  // Step 6 — Press Enter to open the highlighted chat
+  console.log("📂 Opening chat...");
+  await keyboard.pressKey(Key.Enter);
+  await keyboard.releaseKey(Key.Enter);
+
+  // Step 7 — Wait for the chat panel to fully load
+  await sleep(3000);
+
+  // ⚠️ FIX: DO NOT press Escape here — it closes the chat panel.
+  //         After Enter, WhatsApp automatically focuses the message input box.
+
+  console.log(`✅ Chat opened: "${contactName}" — message box is ready`);
+}
+
+// ─── Exported: send a text message ────────────────────────────────────────────
+
+export async function sendMessage(contactName, message) {
+  try {
+    await openChat(contactName);
+
+    // Small buffer before typing the message
+    console.log("⏳ Waiting before typing message...");
+    await sleep(2000);
+
+    // Type the message into the message input box
+    console.log(`💬 Typing message: "${message}"`);
+    await keyboard.type(message);
+    await sleep(1000);
+
+    // Send with Enter
+    await keyboard.pressKey(Key.Enter);
+    await keyboard.releaseKey(Key.Enter);
+
+    console.log("✅ Message sent successfully");
 
     return {
       content: [
-        {
-          type: 'text',
-          text: `📎 File "${path.basename(absolutePath)}" sent to "${contactName}" on WhatsApp.`,
-        },
-      ],
+        { type: "text", text: `✅ Message sent to "${contactName}"` }
+      ]
     };
   } catch (err) {
+    console.error("❌ sendMessage error:", err.message);
     return {
-      content: [{ type: 'text', text: `❌ WhatsApp file error: ${err.message}` }],
-      isError: true,
+      content: [{ type: "text", text: `❌ ${err.message}` }],
+      isError: true
     };
   }
 }
 
-// ── Get recent chats (useful for debugging contact names) ────────────────────
-export async function listWhatsAppChats(limit = 10) {
+// ─── Exported: send a file ────────────────────────────────────────────────────
+
+export async function sendFile(contactName, filePath) {
   try {
-    const wa = await getClient();
-    const chats = await wa.getChats();
-    const recent = chats.slice(0, limit).map((c) => ({
-      name: c.name,
-      isGroup: c.isGroup,
-      unreadCount: c.unreadCount,
-    }));
+    await openChat(contactName);
+
+    console.log(`📎 Attaching file: "${filePath}"`);
+
+    // Open the file-attach dialog with Ctrl+O
+    await pressCombo(Key.LeftControl, Key.O);
+    await sleep(3000); // wait for the OS file dialog
+
+    // Type the full file path and confirm
+    await keyboard.type(filePath);
+    await sleep(1000);
+
+    await keyboard.pressKey(Key.Enter);
+    await keyboard.releaseKey(Key.Enter);
+
+    // Wait for WhatsApp to show the file preview
+    await sleep(5000);
+
+    // Confirm send
+    console.log("📤 Confirming send...");
+    await keyboard.pressKey(Key.Enter);
+    await keyboard.releaseKey(Key.Enter);
+    await sleep(2000);
+
+    console.log("✅ File sent successfully");
 
     return {
-      content: [{ type: 'text', text: `Recent chats:\n${JSON.stringify(recent, null, 2)}` }],
+      content: [
+        { type: "text", text: `✅ File sent to "${contactName}"` }
+      ]
     };
   } catch (err) {
+    console.error("❌ sendFile error:", err.message);
     return {
-      content: [{ type: 'text', text: `❌ Error listing chats: ${err.message}` }],
-      isError: true,
+      content: [{ type: "text", text: `❌ ${err.message}` }],
+      isError: true
+    };
+  }
+}
+
+// ─── Exported: open a chat only (no message) ──────────────────────────────────
+
+export async function openWhatsAppChat(contactName) {
+  try {
+    await openChat(contactName);
+    return {
+      content: [
+        { type: "text", text: `✅ Opened chat with "${contactName}"` }
+      ]
+    };
+  } catch (err) {
+    console.error("❌ openWhatsAppChat error:", err.message);
+    return {
+      content: [{ type: "text", text: `❌ ${err.message}` }],
+      isError: true
     };
   }
 }

@@ -40,12 +40,11 @@ const rawKeys = process.env.GEMINI_API_KEYS
   ? process.env.GEMINI_API_KEYS.split(',').map(k => k.trim()).filter(k => k.length > 0)
   : [process.env.GEMINI_API_KEY].filter(Boolean);
 
-// Filter out obviously invalid keys (Gemini keys start with AIza)
-const validKeys = rawKeys.filter(k => /^AIza[ -~]+$/.test(k));
+// Accept all non‑empty keys (no prefix filtering – invalid keys will be auto‑skipped)
+const validKeys = rawKeys.filter(k => k.length > 0);
 
 if (validKeys.length === 0) {
-  console.error('❌ No valid Gemini API keys found. Set GEMINI_API_KEYS or GEMINI_API_KEY in .env');
-  console.error('   Expected format: AIza... (each key starts with "AIza")');
+  console.error('❌ No Gemini API keys found. Set GEMINI_API_KEYS or GEMINI_API_KEY in .env');
   process.exit(1);
 }
 

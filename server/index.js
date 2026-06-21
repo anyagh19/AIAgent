@@ -18,7 +18,7 @@ import { apiResponse } from "./mail.tool.js";
 import { analyzeScreenshot } from "./screenshot.tool.js";
 import { browserSearch } from "./browser.tool.js";
 import { computerControl } from "./computer.tool.js";
-// import { sendWhatsAppMessage, sendWhatsAppFile } from "./whatsapp.tool.js";
+
 import { listFiles, readFile, writeFile } from './file.tool.js';
 import { wikipediaLookup } from './wikipedia.tool.js';
 import { getSystemInfo } from './system.tool.js';
@@ -26,10 +26,10 @@ import { shortenUrl } from './shorten.tool.js';
 import { launchApp } from './app_launcher.tool.js';
 import { openFolder, openDownloads, openDocuments, openDesktop } from './file_explorer.tool.js';
 import { openFile, searchAndOpenFile } from './fileopener.tool.js';
-// import { sendWhatsAppMessage, sendTelegramMessage } from './send_message_app.tool.js';
+
 import { listDownloads, openLatestDownload, openDownloadedPDF } from './downloads_manager.tool.js';
 import User from './models/user.js';
-// import openInstagram from "./instagram.tool.js";
+
 // Expense Tools
 import {
   logExpense,
@@ -52,13 +52,13 @@ import {
 
 // Gmail Tools
 import {
-  searchEmails,
-  getUnreadEmails,
-  getEmailContent,
-  markAsRead,
-  sendEmail,
-  getEmailStats
-} from "./email.tool.js";
+  searchEmailsBrowser,
+  openLatestEmail,
+  openEmailFrom,
+  openEmailOnDate,
+  openEmailContaining,
+  openGmailSearch
+} from './email.tool.js';
 
 // Task Tools
 import {
@@ -72,11 +72,21 @@ import {
 
 // Calendar Tools
 import {
-  getUpcomingEvents,
-  createEvent,
-  findFreeSlots,
-  deleteEvent
-} from "./calendar.tool.js";
+  openCalendar,
+  openCalendarOnDate,
+  createEventBrowser,
+  openCalendarMonth
+} from './calendar.tool.js';
+
+import { createPPT } from './ppt_generator.tool.js';
+
+import {
+  scrapePage,
+  monitorChanges,
+  extractStructuredData
+} from './web_scrapper.tool.js';
+
+import { sendMessage, sendFile } from './whatsapp.tool.js';
 
 const app = express();
 app.use(express.json());
@@ -361,59 +371,8 @@ app.post('/mcp', authMiddleware, async (req, res) => {
       }
     );
 
-    server.tool(
-      "whatsappControl",
-      "Control WhatsApp to open the app, navigate to specific contacts, send messages, or share files from Downloads folder. Use this for tasks like 'open WhatsApp', 'message John', 'send file to Sarah', etc.",
-      {
-        action: z.enum([
-          "open",
-          "open_chat",
-          "send_message",
-          "send_file"
-        ]).describe("Action to perform: open (just open WhatsApp), open_chat (open specific contact), send_message (send text message), send_file (send file from Downloads)"),
-        params: z.object({
-          contactName: z.string().optional().describe("Name of the contact (required for open_chat, send_message, send_file)"),
-          message: z.string().optional().describe("Message text to send (required for send_message)"),
-          fileName: z.string().optional().describe("Name of file in Downloads folder to send (required for send_file)")
-        }).optional().describe("Parameters for the WhatsApp action")
-      },
-      async ({ action, params = {} }) => {
-        try {
-          const result = await whatsappControl(action, params);
 
-          if (!result.success) {
-            return {
-              content: result.content,
-              isError: true,
-            };
-          }
 
-          return {
-            content: result.content,
-          };
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `❌ WhatsApp control error: ${error.message}`
-              }
-            ],
-            isError: true
-          };
-        }
-      }
-    );
-
-    server.tool(
-      "openInstagram",
-      "Open Instagram application or website on the default browser.",
-      {},
-      async () => {
-        const result = await openInstagram();
-        return result;
-      }
-    )
 
     server.tool(
       "list_files",
@@ -456,6 +415,27 @@ app.post('/mcp', authMiddleware, async (req, res) => {
       "Shorten a long URL using TinyURL",
       { url: z.string().describe("Long URL to shorten") },
       async ({ url }) => shortenUrl(url)
+    );
+
+    //whatsapp
+    server.tool(
+      "send_whatsapp_message",
+      {
+        contact: z.string(),
+        message: z.string()
+      },
+      async ({ contact, message }) =>
+        sendMessage(contact, message)
+    );
+
+    server.tool(
+      "send_whatsapp_file",
+      {
+        contact: z.string(),
+        file: z.string()
+      },
+      async ({ contact, file }) =>
+        sendFile(contact, file)
     );
 
     // App Launcher
@@ -655,62 +635,54 @@ app.post('/mcp', authMiddleware, async (req, res) => {
       async () => clearClipboardHistory()
     );
 
+    // ─── Existing Email Tools ─────────────────────────────────────
+    // ── Browser-only email tools ──
     server.tool(
       "search_emails",
-      "Search Gmail emails",
-      {
-        query: z.string(),
-        maxResults: z.number().optional()
-      },
-      async ({ query, maxResults = 10 }) =>
-        searchEmails(query, maxResults)
+      "Open Gmail in your browser with a custom search query",
+      { query: z.string().describe("Gmail search query") },
+      async ({ query }) => searchEmailsBrowser(query)
     );
 
     server.tool(
-      "unread_emails",
-      "Get unread emails",
-      {
-        maxResults: z.number().optional()
-      },
-      async ({ maxResults = 10 }) =>
-        getUnreadEmails(maxResults)
-    );
-
-    server.tool(
-      "get_email_content",
-      "Get full email content",
-      {
-        emailId: z.string()
-      },
-      async ({ emailId }) => getEmailContent(emailId)
-    );
-
-    server.tool(
-      "mark_email_read",
-      "Mark email as read",
-      {
-        emailId: z.string()
-      },
-      async ({ emailId }) => markAsRead(emailId)
-    );
-
-    server.tool(
-      "send_email",
-      "Send Gmail email",
-      {
-        to: z.string(),
-        subject: z.string(),
-        body: z.string()
-      },
-      async ({ to, subject, body }) =>
-        sendEmail(to, subject, body)
-    );
-
-    server.tool(
-      "email_stats",
-      "Get Gmail statistics",
+      "open_latest_email",
+      "Open Gmail showing the most recent emails (inbox sorted by newest)",
       {},
-      async () => getEmailStats()
+      async () => openLatestEmail()
+    );
+
+    server.tool(
+      "open_email_from",
+      "Open Gmail showing emails from a specific sender",
+      { sender: z.string().describe("Email address or name") },
+      async ({ sender }) => openEmailFrom(sender)
+    );
+
+    server.tool(
+      "open_email_on_date",
+      "Open Gmail showing emails from a specific date",
+      { date: z.string().describe("Date: 'today', 'yesterday', or 'YYYY-MM-DD'") },
+      async ({ date }) => openEmailOnDate(date)
+    );
+
+    server.tool(
+      "open_email_containing",
+      "Open Gmail showing emails that contain a specific phrase",
+      { text: z.string().describe("Text to search for in email body or subject") },
+      async ({ text }) => openEmailContaining(text)
+    );
+
+    server.tool(
+      "open_gmail_search",
+      "Open Gmail with combined search criteria (sender, date, contains, custom query)",
+      {
+        query: z.string().optional(),
+        sender: z.string().optional(),
+        date: z.string().optional(),
+        contains: z.string().optional()
+      },
+      async ({ query = '', sender = '', date = '', contains = '' }) =>
+        openGmailSearch({ query, sender, date, contains })
     );
 
 
@@ -787,56 +759,118 @@ app.post('/mcp', authMiddleware, async (req, res) => {
       async () => getTaskStats()
     );
 
+    // ─── Calendar Tools (Browser‑based) ──────────────────────
     server.tool(
-      "upcoming_events",
-      "Get upcoming calendar events",
-      {
-        maxResults: z.number().optional(),
-        timeMin: z.string().optional(),
-        timeMax: z.string().optional()
-      },
-      async ({ maxResults = 10, timeMin = null, timeMax = null }) =>
-        getUpcomingEvents(maxResults, timeMin, timeMax)
+      "open_calendar",
+      "Open Google Calendar in your default browser",
+      {},
+      async () => openCalendar()
     );
 
     server.tool(
-      "create_event",
-      "Create calendar event",
+      "open_calendar_on_date",
+      "Open Google Calendar on a specific date",
       {
-        summary: z.string(),
-        startTime: z.string(),
-        endTime: z.string(),
-        description: z.string().optional(),
-        location: z.string().optional()
+        date: z.string().describe("Date: 'today', 'yesterday', or 'YYYY-MM-DD'")
       },
-      async ({
-        summary,
-        startTime,
-        endTime,
-        description = "",
-        location = ""
-      }) =>
-        createEvent(summary, startTime, endTime, description, location)
+      async ({ date }) => openCalendarOnDate(date)
     );
 
     server.tool(
-      "find_free_slots",
-      "Find free calendar slots",
+      "create_calendar_event",
+      "Pre‑fill a new Google Calendar event and open it in your browser (you can adjust and save manually)",
       {
-        date: z.string(),
-        duration: z.number().optional()
+        summary: z.string().describe("Event title"),
+        startTime: z.string().describe("Start time in ISO format, e.g., '2026-06-21T10:00:00'"),
+        endTime: z.string().describe("End time in ISO format, e.g., '2026-06-21T11:00:00'"),
+        description: z.string().optional().describe("Event description"),
+        location: z.string().optional().describe("Event location")
       },
-      async ({ date, duration = 60 }) =>
-        findFreeSlots(date, duration)
+      async ({ summary, startTime, endTime, description = '', location = '' }) =>
+        createEventBrowser(summary, startTime, endTime, description, location)
     );
 
     server.tool(
-      "delete_event",
-      "Delete calendar event",
+      "open_calendar_month",
+      "Open Google Calendar in month view for a given date",
       {
-        eventId: z.string()
+        date: z.string().describe("Date: 'today', 'yesterday', or 'YYYY-MM-DD'")
       },
-      async ({ eventId }) => deleteEvent(eventId)
+      async ({ date }) => openCalendarMonth(date)
+    );
+
+    //ppt
+    server.tool(
+      "create_presentation",
+      `Generate a PowerPoint presentation (.pptx) from a topic and structured content.
+
+**When to use:**
+- The user asks to create, generate, or make a PowerPoint, PPT, presentation, slides.
+- The user provides a topic and some information (bullet points, paragraphs, sections).
+
+**How it works:**
+- The first line of each slide becomes the slide title.
+- The remaining lines become bullet points.
+- Separate slides with "---" (three dashes) on a new line.
+
+**Example input:**
+Topic: "AI Agent Overview"
+Information:
+"Introduction
+- What is an AI Agent?
+- Key characteristics
+---
+Applications
+- Virtual assistants
+- Autonomous systems
+---
+Future Trends
+- Multimodal agents
+- Ethical considerations"
+
+**Output:** A .pptx file saved in user_files/ppts/ with the given filename.`,
+      {
+        topic: z.string().describe("Title of the presentation (appears on the first slide)"),
+        information: z.string().describe("Content for slides. Use '---' on separate lines to divide slides. The first line of each section becomes the slide title, the rest are bullet points."),
+        filename: z.string().optional().describe("Output filename without extension (default: 'Presentation')"),
+        autoOpen: z.boolean().optional().describe("Automatically open the file after creation (default: true)")
+      },
+      async ({ topic, information, filename = 'Presentation', autoOpen = true }) =>
+        createPPT({ topic, information, filename, autoOpen })
+    );
+
+    //web scraper
+    // ─── Web Scraper Tools ──────────────────────────────────────
+    server.tool(
+      "scrape_page",
+      "Scrape the text content of a webpage (or a specific CSS selector) and return the text (first 2000 chars).",
+      {
+        url: z.string().describe("The URL to scrape"),
+        selector: z.string().optional().describe("CSS selector to target a specific element (default: 'body')")
+      },
+      async ({ url, selector = 'body' }) => scrapePage(url, selector)
+    );
+
+    server.tool(
+      "monitor_changes",
+      "Start monitoring a webpage for changes. Every interval, it checks if the content has changed and logs a notification.",
+      {
+        url: z.string().describe("URL to monitor"),
+        interval_minutes: z.number().optional().describe("Check interval in minutes (default: 60)"),
+        selector: z.string().optional().describe("CSS selector to monitor (default: 'body')")
+      },
+      async ({ url, interval_minutes = 60, selector = 'body' }) =>
+        monitorChanges(url, interval_minutes, selector)
+    );
+
+    server.tool(
+      "extract_structured_data",
+      "Extract structured data from a webpage using a CSS selector. Returns an array of the text content of all matching elements.",
+      {
+        url: z.string().describe("URL to scrape"),
+        selector: z.string().describe("CSS selector to extract data from")
+      },
+      async ({ url, selector }) => extractStructuredData(url, selector)
     );
 
     // Connect to the MCP server

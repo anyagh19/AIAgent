@@ -9,5 +9,27 @@
     "completed": false,
     "createdAt": "2026-05-17T15:41:58.967Z",
     "completedAt": null
+  },
+  {
+    "id": "89bbc7a6-583b-4802-af79-926db90e5de2",
+    "title": "Project Status",
+    "description": "Project is struggling.",
+    "priority": "medium",
+    "dueDate": null,
+    "tags": [],
+    "completed": false,
+    "createdAt": "2026-06-20T19:58:15.847Z",
+    "completedAt": null
+  },
+  {
+    "id": "9cd435ff-dc31-4ded-9378-e44a0830eb9c",
+    "title": "final project presentation",
+    "description": "",
+    "priority": "medium",
+    "dueDate": "2023-06-27",
+    "tags": [],
+    "completed": false,
+    "createdAt": "2026-06-20T20:05:47.757Z",
+    "completedAt": null
   }
 ]
