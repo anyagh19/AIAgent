@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { notify } from './desktop_notification.tool.js';
 
 const TASKS_FILE = path.join(process.cwd(), 'data', 'tasks.json');
 
@@ -45,6 +46,7 @@ export async function addTask(title, description = '', priority = 'medium', dueD
 
     tasks.push(newTask);
     await saveTasks(tasks);
+     await notify('✅ Task Added', `${title} (${priority}) – due ${dueDate ? new Date(dueDate).toLocaleDateString() : 'no due date'}`);
 
     return {
       content: [{
@@ -152,6 +154,7 @@ export async function completeTask(taskId) {
     task.completed = true;
     task.completedAt = new Date().toISOString();
     await saveTasks(tasks);
+     await notify('✅ Task Completed', `${task.title}`);
 
     return {
       content: [{

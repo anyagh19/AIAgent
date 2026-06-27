@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import session from "express-session";
 
-mongoose.connect("mongodb+srv://Aniket:Aniket123@cluster0.3nwumy2.mongodb.net/mcpauth")
+mongoose.connect("mongodb+srv://Aniket:Anya19@cluster0.3nwumy2.mongodb.net/mcpauth")
   .then(() => console.log("MongoDB Connected"))
   .catch(err => console.log(err));
 
@@ -57,7 +57,17 @@ import {
   openEmailFrom,
   openEmailOnDate,
   openEmailContaining,
-  openGmailSearch
+  openGmailSearch,
+  sendEmailViaGmail,
+  composeEmailBrowser,
+  fetchUnreadEmails,
+  triageInbox,
+  startPeriodicTriage,
+  stopPeriodicTriage,
+  getLastTriageResults,
+  openDraftInGmail,
+  sendToastNotification,
+  getUnreadCount
 } from './email.tool.js';
 
 // Task Tools
@@ -87,6 +97,97 @@ import {
 } from './web_scrapper.tool.js';
 
 import { sendMessage, sendFile } from './whatsapp.tool.js';
+
+import {
+  setBudget,
+  getBudgetStatus,
+  addBill,
+  checkUpcomingBills,
+  listAllBills,
+  getFinancialHealth,
+  forecastSpending,
+  autoFinancialCheck
+} from './finance_advisor.tool.js';
+
+// Package tracker
+import {
+  addPackage,
+  listPackages,
+  checkAllPackages,
+  removePackage,
+  autoPackageCheck
+} from './package_tracker.tool.js';
+
+// Wellness coach
+import {
+  startWellnessSession,
+  stopWellnessSession,
+  takeBreak,
+  setWellnessGoals,
+  getTodayWellness,
+  autoWellnessCheck,
+  resetWellnessSession
+} from './wellness_coach.tool.js';
+
+import {
+  addSubscription,
+  listSubscriptions,
+  checkRenewals,
+  cancelSubscription,
+  autoCheckRenewals
+} from './subscription_manager.tool.js';
+
+import {
+  addJob,
+  listJobs,
+  updateJobStatus,
+  checkFollowUps
+} from './job_tracker.tool.js';
+
+import {
+  organizeFile,
+  startDocumentWatcher,
+  stopDocumentWatcher,
+  organizeExistingFiles
+} from './document_organizer.tool.js';
+
+import { planDetailedTrip } from './travel_planner.tool.js';
+import { generateAudioTour } from "./tour_planner.tool.js";
+import { runGTMOutreach} from "./gtm_outreach.tool.js";
+
+import { summarizeYouTubeVideo } from './youtube_summarizer.tool.js';
+
+import cron from 'node-cron';
+
+
+cron.schedule('0 9 * * *', async () => {
+  console.log('Running daily financial check...');
+  await autoFinancialCheck();
+});
+
+// Check packages every 2 hours
+cron.schedule('0 */2 * * *', async () => {
+  console.log('📦 Checking packages...');
+  await autoPackageCheck();
+});
+
+// Wellness check every minute
+cron.schedule('* * * * *', async () => {
+  await autoWellnessCheck();
+});
+
+// Subscription renewals – daily at 8 AM
+cron.schedule('0 8 * * *', async () => {
+  console.log('🔄 Checking subscription renewals...');
+  await autoCheckRenewals();
+});
+
+// Job follow‑ups – daily at 9 AM
+cron.schedule('0 9 * * *', async () => {
+  console.log('💼 Checking job follow‑ups...');
+  await checkFollowUps();
+});
+
 
 const app = express();
 app.use(express.json());
@@ -195,43 +296,6 @@ app.post('/mcp', authMiddleware, async (req, res) => {
         return getTweets();
       }
     )
-
-    server.tool(
-      "mailer",
-      "Send an email with the given status",
-      {
-        from1_: z.string(),
-        to: z.string(),
-        sub: z.string()
-      },
-      async (input) => {
-        const { from1_, to, sub } = input;
-        const response = await apiResponse({ from: from1_, to, sub });
-
-        console.log("Email API response:", JSON.stringify(response, null, 2));
-
-        if (response.error || !response.content?.[0]?.text) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: response.message || "Unknown error from mailer tool",
-              }
-            ],
-            isError: true
-          };
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: response.content[0].text
-            }
-          ]
-        };
-      }
-    );
 
     server.tool(
       "analyzeScreenshot",
@@ -476,16 +540,6 @@ app.post('/mcp', authMiddleware, async (req, res) => {
       async ({ file_name, base_dir = process.env.USERPROFILE }) => searchAndOpenFile(file_name, base_dir)
     );
 
-    // Messaging Apps
-    // server.tool("send_whatsapp_message", "Open WhatsApp with a pre-filled message (user must press send)",
-    //   { phone_number: z.string().describe("Phone number with country code (e.g., 919876543210) or leave empty for contact search"), message: z.string() },
-    //   async ({ phone_number, message }) => sendWhatsAppMessage(phone_number, message)
-    // );
-
-    // server.tool("send_telegram_message", "Open Telegram with a pre-filled message",
-    //   { chat_id: z.string().describe("Telegram username or chat ID"), message: z.string() },
-    //   async ({ chat_id, message }) => sendTelegramMessage(chat_id, message)
-    // );
 
     // Downloads Manager
     server.tool("list_downloads", "List files in Downloads folder (optionally filter by name)",
@@ -503,26 +557,7 @@ app.post('/mcp', authMiddleware, async (req, res) => {
       async ({ file_part }) => openDownloadedPDF(file_part)
     );
 
-    // Inside server.tool block
-    server.tool(
-      "whatsapp_send_message",
-      "Send a text message via WhatsApp Desktop. Provide contact name exactly as saved.",
-      {
-        contact: z.string().describe("Contact name (as shown in WhatsApp)"),
-        message: z.string().describe("Message text to send")
-      },
-      async ({ contact, message }) => sendWhatsAppMessage(contact, message)
-    );
 
-    server.tool(
-      "whatsapp_send_file",
-      "Send a file via WhatsApp Desktop. Provide contact name and full file path.",
-      {
-        contact: z.string().describe("Contact name (as shown in WhatsApp)"),
-        file_path: z.string().describe("Absolute path to the file (e.g., C:\\Users\\name\\Downloads\\doc.pdf)")
-      },
-      async ({ contact, file_path }) => sendWhatsAppFile(contact, file_path)
-    );
 
     server.tool(
       "log_expense",
@@ -685,6 +720,64 @@ app.post('/mcp', authMiddleware, async (req, res) => {
         openGmailSearch({ query, sender, date, contains })
     );
 
+    // ─── Email (Gmail automation) ──────────────────────────────
+    server.tool(
+      "mailer",
+      "Send an email automatically using Gmail (opens a new tab in your existing Edge window, fills compose, and clicks Send).",
+      {
+        to: z.string().describe("Recipient email address"),
+        sub: z.string().describe("Subject of the email"),
+        from1_: z.string().optional().describe("Sender name (ignored – kept for compatibility)")
+      },
+      async ({ to, sub, from1_ }) => {
+        const body = `This is an automated email about: "${sub}"\n\nSent by your AI Assistant.`;
+        const result = await sendEmailViaGmail(to, sub, body, false);
+        return result;
+      }
+    ); server.tool(
+      "compose_email",
+      "Open Gmail compose with pre‑filled fields (manual send).",
+      { to: z.string().optional(), subject: z.string().optional(), body: z.string().optional() },
+      async ({ to = '', subject = '', body = '' }) => composeEmailBrowser(to, subject, body)
+    );
+
+    server.tool("triage_inbox", "AI‑summarise unread emails, draft replies, save results, toast notification.",
+      { maxCount: z.number().optional() },
+      async ({ maxCount = 5 }) => triageInbox(maxCount)
+    );
+
+    server.tool("start_periodic_triage", "Start auto‑triage every N minutes.",
+      { intervalMinutes: z.number().optional(), maxCount: z.number().optional() },
+      async ({ intervalMinutes = 30, maxCount = 5 }) => startPeriodicTriage(intervalMinutes, maxCount)
+    );
+
+    server.tool("stop_periodic_triage", "Stop auto‑triage.",
+      {}, async () => stopPeriodicTriage()
+    );
+
+    server.tool("get_triage_results", "Get last triage results.",
+      {}, async () => getLastTriageResults()
+    );
+
+    server.tool("open_draft_in_gmail", "Open AI draft in Gmail compose.",
+      { index: z.number().optional() },
+      async ({ index = 0 }) => openDraftInGmail(index)
+    );
+
+    server.tool("send_toast", "Send a Windows toast notification.",
+      { title: z.string(), message: z.string(), openUrl: z.string().optional() },
+      async ({ title, message, openUrl = 'https://mail.google.com/mail/u/0/#inbox' }) => {
+        sendToastNotification(title, message, openUrl);
+        return { content: [{ type: 'text', text: `🔔 Toast: "${title}"` }] };
+      }
+    );
+
+    server.tool(
+      "unread_count",
+      "Check how many unread emails you have.",
+      {},
+      async () => getUnreadCount()
+    );
 
     server.tool(
       "add_task",
@@ -871,6 +964,228 @@ Future Trends
         selector: z.string().describe("CSS selector to extract data from")
       },
       async ({ url, selector }) => extractStructuredData(url, selector)
+    );
+
+
+    //Finance
+    // ─── Personal Finance Advisor ──────────────────────────────
+    server.tool(
+      "set_budget",
+      "Set a monthly budget for a spending category.",
+      { category: z.string(), limit: z.number(), period: z.enum(["monthly", "yearly"]).optional() },
+      async ({ category, limit, period }) => setBudget(category, limit, period)
+    );
+
+    server.tool(
+      "budget_status",
+      "Show current spending vs budgets for this month.",
+      {},
+      async () => getBudgetStatus()
+    );
+
+    server.tool(
+      "add_bill",
+      "Add a recurring bill to track.",
+      { name: z.string(), amount: z.number(), dueDate: z.string(), category: z.string().optional(), recurrence: z.enum(["monthly", "quarterly", "yearly"]).optional() },
+      async ({ name, amount, dueDate, category, recurrence }) => addBill(name, amount, dueDate, category, recurrence)
+    );
+
+    server.tool(
+      "check_bills",
+      "Check for upcoming bills in the next 7 days.",
+      {},
+      async () => checkUpcomingBills()
+    );
+
+    server.tool(
+      "financial_health",
+      "Get a comprehensive financial health summary.",
+      {},
+      async () => getFinancialHealth()
+    );
+
+    server.tool(
+      "forecast_spending",
+      "Forecast spending over the next N days based on history.",
+      { days: z.number().optional() },
+      async ({ days = 30 }) => forecastSpending(days)
+    );
+
+    server.tool("list_bills", "Show all saved bills (past, future, active)", {}, async () => listAllBills());
+    // Optional: you can also register `autoFinancialCheck` for scheduled cron jobs.
+
+    // ─── Package Tracker ─────────────────────────────────────────
+    server.tool("add_package", "Add a package to track", { trackingNumber: z.string(), carrier: z.enum(["ups", "fedex", "usps", "dhl", "amazon"]), name: z.string().optional() },
+      async ({ trackingNumber, carrier, name }) => addPackage(trackingNumber, carrier, name)
+    );
+    server.tool("list_packages", "List all tracked packages", {}, async () => listPackages());
+    server.tool("check_packages", "Check status of all tracked packages", { notify: z.boolean().optional() },
+      async ({ notify = true }) => checkAllPackages(notify)
+    );
+    server.tool("remove_package", "Remove a tracked package", { id: z.string() }, async ({ id }) => removePackage(id));
+
+    // ─── Wellness Coach ──────────────────────────────────────────
+    server.tool("start_wellness_session", "Start a wellness (screen time) session", { type: z.enum(["work", "study", "general"]).optional() },
+      async ({ type = "work" }) => startWellnessSession(type)
+    );
+    server.tool("stop_wellness_session", "Stop the current session", {}, async () => stopWellnessSession());
+    server.tool("take_break", "Take a break during the current session", {}, async () => takeBreak());
+    server.tool("set_wellness_goals", "Set daily screen time and break goals", { dailyLimitHours: z.number(), breakIntervalMinutes: z.number(), breakDurationMinutes: z.number() },
+      async ({ dailyLimitHours, breakIntervalMinutes, breakDurationMinutes }) => setWellnessGoals(dailyLimitHours, breakIntervalMinutes, breakDurationMinutes)
+    );
+    server.tool("today_wellness", "Get today's screen time summary", {}, async () => getTodayWellness());
+    server.tool("reset_wellness", "Reset the current session", {}, async () => resetWellnessSession());
+
+
+    // Subscription Manager
+    // ─── Subscription Manager ──────────────────────────────────
+    server.tool("add_subscription", "Add a subscription to track.",
+      { name: z.string(), cost: z.number(), renewalDate: z.string(), category: z.string().optional() },
+      async ({ name, cost, renewalDate, category }) => addSubscription(name, cost, renewalDate, category)
+    );
+    server.tool("list_subscriptions", "List all tracked subscriptions.",
+      {}, async () => listSubscriptions()
+    );
+    server.tool("check_renewals", "Check subscriptions renewing in the next 7 days.",
+      {}, async () => checkRenewals()
+    );
+    server.tool("cancel_subscription", "Cancel a subscription (mark inactive).",
+      { id: z.string() }, async ({ id }) => cancelSubscription(id)
+    );
+
+    // ─── Job Tracker ────────────────────────────────────────────
+    server.tool("add_job", "Add a job application.",
+      { company: z.string(), role: z.string(), status: z.enum(["applied", "interview", "offer", "rejected"]).optional(), deadline: z.string().optional(), notes: z.string().optional() },
+      async ({ company, role, status, deadline, notes }) => addJob(company, role, status, deadline, notes)
+    );
+    server.tool("list_jobs", "List job applications.",
+      { filter: z.enum(["all", "applied", "interview", "offer", "rejected"]).optional() },
+      async ({ filter }) => listJobs(filter)
+    );
+    server.tool("update_job_status", "Update the status of a job application.",
+      { id: z.string(), status: z.enum(["applied", "interview", "offer", "rejected"]), notes: z.string().optional() },
+      async ({ id, status, notes }) => updateJobStatus(id, status, notes)
+    );
+    server.tool("check_followups", "Check for applications needing a follow‑up (applied > 7 days ago).",
+      {}, async () => checkFollowUps()
+    );
+
+    // ─── Document Organizer ──────────────────────────────────────
+    server.tool("organize_file", "Manually organize a file (move, rename, summarise).",
+      { filePath: z.string() },
+      async ({ filePath }) => organizeFile(filePath)
+    );
+    server.tool("start_watcher", "Start the automatic document watcher (background).",
+      {}, async () => startDocumentWatcher()
+    );
+    server.tool("stop_watcher", "Stop the automatic document watcher.",
+      {}, async () => stopDocumentWatcher()
+    );
+    server.tool("organize_existing", "Organise all existing files in the watched folder.",
+      {}, async () => organizeExistingFiles()
+    );
+
+
+   server.tool(
+  "plan_detailed_trip",
+  `Generate an extremely detailed travel itinerary with real-time data (weather, attractions, accommodation).
+  
+  **When to use:** The user asks for a very detailed travel plan, itinerary, or trip planner.
+  
+  **Parameters:**
+  - destination: city or country
+  - numDays: number of days (default 7)
+  - preferences: e.g., adventure, culture, food
+  - budget: total budget in USD (default 2000)
+  - startDate: YYYY-MM-DD (default today)
+  - email: optional email to send the itinerary`,
+  {
+    destination: z.string().describe("Destination city or country"),
+    numDays: z.number().optional().describe("Number of days (default 7)"),
+    preferences: z.string().optional().describe("Travel preferences (e.g., adventure, food, culture)"),
+    budget: z.number().optional().describe("Total budget in USD (default 2000)"),
+    startDate: z.string().optional().describe("Start date in YYYY-MM-DD format (default today)"),
+    email: z.string().optional().describe("Email address to send the itinerary"),
+  },
+  async ({ destination, numDays, preferences, budget, startDate, email }) =>
+    planDetailedTrip({ destination, numDays, preferences, budget, startDate, email })
+);
+
+
+server.tool(
+  "generate_audio_tour",
+  `Generate a personalized audio tour script for any location, with optional TTS audio.
+  
+  **When to use:** The user wants a self‑guided audio tour of a place (city, landmark, neighbourhood).
+  
+  **Parameters:**
+  - location: string (e.g., "Paris", "Colosseum")
+  - interests: array of strings from ["History", "Architecture", "Culinary", "Culture"] (default: ["History", "Architecture"])
+  - durationMinutes: number (default: 10)
+  - generateAudio: boolean (if true, also produce an MP3 file)`,
+  {
+    location: z.string().describe("City, landmark, or neighbourhood"),
+    interests: z.array(z.enum(["History", "Architecture", "Culinary", "Culture"])).optional().describe("Topics to cover"),
+    durationMinutes: z.number().min(5).max(60).optional().describe("Tour duration in minutes (default 10)"),
+    generateAudio: z.boolean().optional().describe("Generate an MP3 audio file (requires OpenAI API key or system TTS)"),
+  },
+  async ({ location, interests = ["History", "Architecture"], durationMinutes = 10, generateAudio = false }) =>
+    generateAudioTour({ location, interests, durationMinutes, generateAudio })
+);
+
+
+server.tool(
+  "run_gtm_outreach",
+  `Run a full GTM B2B outreach workflow: find companies, contacts, research insights, and generate personalised emails.
+  
+  **Parameters:**
+  - targetDesc: description of target companies (industry, size, region, tech stack, etc.)
+  - offeringDesc: your product/service offering (1-3 sentences)
+  - senderName: your name (default: "Sales Team")
+  - senderCompany: your company name (default: "Our Company")
+  - calendarLink: optional calendar booking link
+  - numCompanies: number of companies to target (1-10, default 5)
+  - emailStyle: "Professional", "Casual", "Cold", "Consultative" (default "Professional")
+  - saveResults: save to file (default true)`,
+  {
+    targetDesc: z.string().describe("Description of target companies"),
+    offeringDesc: z.string().describe("Your product/service offering"),
+    senderName: z.string().optional().describe("Your name"),
+    senderCompany: z.string().optional().describe("Your company name"),
+    calendarLink: z.string().optional().describe("Calendar booking link"),
+    numCompanies: z.number().min(1).max(10).optional().describe("Number of companies (1-10)"),
+    emailStyle: z.enum(["Professional", "Casual", "Cold", "Consultative"]).optional().describe("Email tone/style"),
+    saveResults: z.boolean().optional().describe("Save results to file"),
+  },
+  async ({
+    targetDesc,
+    offeringDesc,
+    senderName = 'Sales Team',
+    senderCompany = 'Our Company',
+    calendarLink = '',
+    numCompanies = 5,
+    emailStyle = 'Professional',
+    saveResults = true,
+  }) =>
+    runGTMOutreach({
+      targetDesc,
+      offeringDesc,
+      senderName,
+      senderCompany,
+      calendarLink,
+      numCompanies,
+      emailStyle,
+      saveResults,
+    })
+);
+    server.tool(
+      "summarize_youtube",
+      "Summarize a YouTube video, generate a PDF, and optionally email it.",
+      {
+        videoUrl: z.string().describe("Full YouTube video URL"),
+        email: z.string().optional().describe("Email to send the summary to (optional)")
+      },
+      async ({ videoUrl, email }) => summarizeYouTubeVideo(videoUrl, email)
     );
 
     // Connect to the MCP server

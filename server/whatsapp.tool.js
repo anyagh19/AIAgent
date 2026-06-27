@@ -133,6 +133,7 @@ export async function sendMessage(contactName, message) {
     await keyboard.releaseKey(Key.Enter);
 
     console.log("✅ Message sent successfully");
+    await notify('📱 WhatsApp Sent', `Message to "${contactName}"`);
 
     return {
       content: [

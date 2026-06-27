@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Assistant – Don Mode</title>
+  <title>AI Assistant – Voice Chat</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Plus Jakarta Sans Font -->
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Marked.js for Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   
   <style>
     body { 
@@ -123,19 +124,75 @@
       100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
     }
 
-    .wake-listening {
-      animation: pulseWake 2.2s infinite;
-      background-color: #10b981 !important;
+    /* Speaking indicator */
+    .speaking-indicator {
+      animation: pulseSpeaking 1.2s infinite;
+      background-color: #8b5cf6 !important;
     }
-    @keyframes pulseWake {
-      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-      70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    @keyframes pulseSpeaking {
+      0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(139, 92, 246, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
     }
 
     /* Sidebar transitions */
     .sidebar-drawer {
       transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* Markdown styles inside AI messages */
+    .markdown-content {
+      line-height: 1.7;
+    }
+    .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+      font-weight: 700;
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+    .markdown-content h1 { font-size: 1.5em; }
+    .markdown-content h2 { font-size: 1.25em; }
+    .markdown-content h3 { font-size: 1.1em; }
+    .markdown-content ul, .markdown-content ol {
+      padding-left: 1.5em;
+      margin: 0.5em 0;
+    }
+    .markdown-content li {
+      list-style-type: disc;
+      margin-bottom: 0.2em;
+    }
+    .markdown-content code {
+      background: #f1f5f9;
+      padding: 0.2em 0.4em;
+      border-radius: 4px;
+      font-size: 0.9em;
+      font-family: 'Courier New', monospace;
+    }
+    .markdown-content pre {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1em;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 0.5em 0;
+    }
+    .markdown-content pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+    .markdown-content blockquote {
+      border-left: 4px solid #6366f1;
+      padding-left: 1em;
+      margin: 0.5em 0;
+      color: #475569;
+      font-style: italic;
+    }
+    .markdown-content a {
+      color: #6366f1;
+      text-decoration: underline;
+    }
+    .markdown-content p {
+      margin: 0.5em 0;
     }
   </style>
 </head>
@@ -144,6 +201,7 @@
   <!-- Interactive Mesh background -->
   <div class="mesh-gradient"></div>
 
+  <!-- Settings Drawer -->
   <div id="settingsDrawer" class="sidebar-drawer fixed right-0 top-0 bottom-0 w-80 bg-white shadow-2xl border-l border-slate-100 z-50 translate-x-full flex flex-col">
     <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
       <div class="flex items-center gap-2">
@@ -154,14 +212,12 @@
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
     </div>
-    
     <div class="flex-1 overflow-y-auto p-6 space-y-6">
       <!-- Voice Selector -->
       <div>
         <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Synthesis Voice</label>
         <select id="voiceSelect" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700"></select>
       </div>
-
       <!-- Speech Speed -->
       <div>
         <div class="flex justify-between items-center mb-1">
@@ -170,7 +226,6 @@
         </div>
         <input type="range" id="speechRate" min="0.5" max="2" step="0.1" value="1.0" class="w-full accent-indigo-600" oninput="document.getElementById('speedValue').textContent = this.value + 'x'">
       </div>
-
       <!-- Pitch -->
       <div>
         <div class="flex justify-between items-center mb-1">
@@ -179,7 +234,6 @@
         </div>
         <input type="range" id="speechPitch" min="0.5" max="1.5" step="0.1" value="1.0" class="w-full accent-indigo-600" oninput="document.getElementById('pitchValue').textContent = this.value">
       </div>
-
       <!-- Continuous TTS Toggle -->
       <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
         <div>
@@ -211,7 +265,7 @@
         </div>
       </div>
 
-      <!-- Center Waveform status (Visible when speech mode is on) -->
+      <!-- Center Waveform status -->
       <div class="hidden md:flex items-center gap-3">
         <div id="visWaveform" class="waveform">
           <span class="wave-bar"></span>
@@ -222,24 +276,11 @@
           <span class="wave-bar"></span>
           <span class="wave-bar"></span>
         </div>
-        <span id="donStatus" class="text-xs font-semibold text-indigo-600">Don Mode Ready</span>
+        <span id="voiceStatus" class="text-xs font-semibold text-indigo-600">Ready</span>
       </div>
 
       <!-- User controls -->
       <div class="flex items-center gap-3">
-        <!-- Don Mode Switch -->
-        <div class="flex items-center gap-2.5 bg-slate-100/80 rounded-full pl-3.5 pr-2 py-1.5 border border-slate-200/50">
-          <span class="text-xs font-bold text-slate-600 flex items-center gap-1">
-            <span>🎤</span> Don Mode
-          </span>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" id="donToggle" class="sr-only peer">
-            <div class="w-9 h-5 bg-slate-300 rounded-full peer peer-checked:bg-emerald-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
-          </label>
-        </div>
-
-        <div id="modeIndicator" class="hidden sm:inline-block text-[11px] font-bold text-slate-500 uppercase tracking-wider bg-slate-100 px-3 py-1.5 rounded-full">Voice Idle</div>
-        
         <!-- Settings Trigger -->
         <button onclick="toggleDrawer()" class="p-2.5 bg-white border border-slate-200/50 hover:bg-slate-50 text-slate-600 rounded-xl transition-all shadow-sm">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
@@ -257,14 +298,12 @@
               <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.684 10.742h.008v.008h-.008v-.008zM12 10.742h.008v.008H12v-.008zm3.308 0h.008v.008h-.008v-.008zM12 21a9.003 9.003 0 008.361-5.653 1.996 1.996 0 00-.573-2.115 10.02 10.02 0 01-2.236-3.21 10.02 10.02 0 01-1.162-4.4 2.25 2.25 0 00-2.25-2.25h-5.04a2.25 2.25 0 00-2.25 2.25 10.02 10.02 0 01-1.162 4.4 10.02 10.02 0 01-2.236 3.21 1.996 1.996 0 00-.573 2.115A9.003 9.003 0 0012 21z"/></svg>
             </div>
           </div>
-          
           <div>
             <h2 class="text-2xl font-bold text-slate-800 tracking-tight">Meet your Voice Companion</h2>
             <p class="text-slate-500 text-sm mt-2 leading-relaxed">
-              Activate <span class="font-bold text-indigo-600">Don Mode</span> or tap 🎤 to control via voice commands. Try saying <span class="font-mono bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-xs font-semibold">"Don, what is the weather today?"</span>
+              Click the 🎤 button to speak, or type your message below.
             </p>
           </div>
-
           <!-- Prompt Starter Cards -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full pt-4">
             <button onclick="usePrompt('How can I optimize my productivity using AI assistants?')" class="p-4 bg-white hover:bg-slate-50 border border-slate-100 rounded-2xl text-left text-xs transition-all hover:scale-[1.01] hover:shadow-md shadow-sm">
@@ -282,11 +321,9 @@
           <% const messageText=msg.parts[0].text; %>
           <% const isLast = index === chatHistory.length - 1; %>
           <% const isAI = msg.role !== 'user'; %>
-          
           <div class="w-full msg-card">
             <div class="flex gap-5 <%= msg.role === 'user' ? 'flex-row-reverse' : '' %>">
-              
-              <!-- Refined Avatar Icons -->
+              <!-- Avatar -->
               <div class="shrink-0">
                 <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold shadow-sm border select-none
                   <%= msg.role === 'user' ? 
@@ -295,21 +332,24 @@
                   <%= msg.role==='user' ? 'ME' : 'AI' %>
                 </div>
               </div>
-
               <!-- Message Body -->
               <div class="flex flex-col max-w-[80%] <%= msg.role === 'user' ? 'items-end' : 'items-start' %>">
                 <div class="relative group p-5 rounded-[22px] text-[15px] leading-relaxed shadow-sm transition-all
                   <%= msg.role === 'user' ? 
                   'bg-indigo-600 text-white rounded-tr-none' : 
                   'bg-white border border-slate-100/80 text-slate-700 rounded-tl-none' %>">
-                  
                   <% if (messageText && messageText.trim().length > 0) { %>
-                    <div class="whitespace-pre-line ai-message-text <%= (isAI && isLast) ? 'typewriter-target' : '' %>">
-                      <%= messageText %>
-                    </div>
+                    <% if (isAI) { %>
+                      <div class="markdown-content ai-message-text <%= (isAI && isLast) ? 'typewriter-target' : '' %>">
+                        <%= messageText %>
+                      </div>
+                    <% } else { %>
+                      <div class="whitespace-pre-line ai-message-text <%= (isAI && isLast) ? 'typewriter-target' : '' %>">
+                        <%= messageText %>
+                      </div>
+                    <% } %>
                   <% } %>
-
-                  <!-- Elegant Floating Action Control Layer (Only on AI answers) -->
+                  <!-- Floating Action Controls (only on AI answers) -->
                   <% if (isAI) { %>
                     <div class="absolute -bottom-3.5 right-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1.5 z-10 bg-white px-2 py-1 rounded-full border border-slate-200 shadow-sm">
                       <button onclick="readAloud(this)" class="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Speak Aloud">
@@ -330,11 +370,8 @@
 
     <footer class="fixed bottom-0 left-0 right-0 p-8 z-20">
       <div class="max-w-3xl mx-auto relative">
-        
-        <!-- Input panel inside blur glass wrap -->
         <div class="glass-input rounded-[28px] p-2 flex items-center gap-2 transition-all focus-within:ring-4 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/30">
-          
-          <!-- Speech Visualizer Inside Input (Left Side) -->
+          <!-- Speech Visualizer -->
           <div id="inlineWaveform" class="waveform hidden px-3">
             <span class="wave-bar bg-red-500"></span>
             <span class="wave-bar bg-red-500"></span>
@@ -342,39 +379,33 @@
             <span class="wave-bar bg-red-500"></span>
             <span class="wave-bar bg-red-500"></span>
           </div>
-
           <textarea 
             id="messageTextArea"
             rows="1" 
-            placeholder="Type or say 'Don' to speak..." 
+            placeholder="Type your message..." 
             class="flex-1 bg-transparent border-none outline-none px-4 py-3.5 text-[15px] text-slate-700 resize-none placeholder-slate-400 max-h-36"
             required
           ></textarea>
-
           <!-- Voice Mic Trigger Button -->
           <button type="button" id="voiceBtn" class="h-11 w-11 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-all shadow-sm bg-slate-50 border border-slate-100" title="Voice input">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </button>
-
           <!-- Auto send checkbox -->
           <label class="hidden md:flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer bg-slate-50 border border-slate-100 rounded-full px-3 py-2">
             <input type="checkbox" id="autoSubmitVoice" class="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked />
             <span class="font-medium">Auto‑send</span>
           </label>
-
           <!-- Submit button -->
           <button type="button" id="sendBtn" class="h-11 px-6 bg-slate-900 hover:bg-indigo-600 text-white rounded-[20px] text-sm font-semibold transition-all active:scale-95 flex items-center gap-2 shadow-md">
             <span id="btnText">Send</span>
             <svg id="btnIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
           </button>
         </div>
-
         <!-- Voice engine status texts footer -->
         <div class="text-center text-[11px] text-slate-400 mt-3 tracking-wide font-medium flex items-center justify-center gap-2">
-          <span id="voiceStatus" class="font-semibold text-indigo-600"></span>
-          <span id="donStatusFooter" class="hidden text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100"></span>
+          <span id="footerStatus" class="font-semibold text-indigo-600"></span>
         </div>
       </div>
     </footer>
@@ -386,13 +417,10 @@
     const tx = document.getElementById('messageTextArea');
     const voiceBtn = document.getElementById('voiceBtn');
     const autoSubmitCheck = document.getElementById('autoSubmitVoice');
-    const voiceStatusSpan = document.getElementById('voiceStatus');
-    const donStatusSpanFooter = document.getElementById('donStatusFooter');
+    const footerStatus = document.getElementById('footerStatus');
     const sendBtn = document.getElementById('sendBtn');
     const btnText = document.getElementById('btnText');
     const btnIcon = document.getElementById('btnIcon');
-    const donToggle = document.getElementById('donToggle');
-    const modeIndicator = document.getElementById('modeIndicator');
     const visWaveform = document.getElementById('visWaveform');
     const inlineWaveform = document.getElementById('inlineWaveform');
     const voiceSelect = document.getElementById('voiceSelect');
@@ -401,22 +429,16 @@
     const autoSpeakToggle = document.getElementById('autoSpeakToggle');
 
     let isSubmitting = false;
-    let isDonModeOn = false;
     let recognitionInstance = null;
-    let isListeningActive = false;
-    let donActivatedState = false; 
-    let donTimeoutTimer = null;
+    let isListening = false;
 
-    // ---------- Load System Voices into dropdown ----------
+    // ---------- Load System Voices ----------
     function loadVoices() {
       if (!('speechSynthesis' in window)) return;
       let voices = window.speechSynthesis.getVoices();
       voiceSelect.innerHTML = '';
-      
-      // Filter primarily for English voices for consistency, fallback to all
       let englishVoices = voices.filter(v => v.lang.startsWith('en'));
       let voicesToUse = englishVoices.length > 0 ? englishVoices : voices;
-      
       voicesToUse.forEach(voice => {
         const option = document.createElement('option');
         option.value = voice.name;
@@ -430,36 +452,38 @@
       loadVoices();
     }
 
-    // ---------- Text-to-Speech Engine Controller ----------
-    function speakText(text) {
-      if (!('speechSynthesis' in window)) return;
+    // ---------- Text-to-Speech ----------
+    function speakText(text, callback) {
+      if (!('speechSynthesis' in window)) { if (callback) callback(); return; }
       window.speechSynthesis.cancel();
-      
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = parseFloat(speechRate.value);
       utterance.pitch = parseFloat(speechPitch.value);
-      
       const selectedVoiceName = voiceSelect.value;
       if (selectedVoiceName) {
         const selectedVoice = window.speechSynthesis.getVoices().find(v => v.name === selectedVoiceName);
         if (selectedVoice) utterance.voice = selectedVoice;
       }
-      
-      // Dynamic Visual Waveform starts when speech plays
       utterance.onstart = () => {
         visWaveform.classList.add('active');
+        voiceBtn.classList.add('speaking-indicator');
       };
       utterance.onend = () => {
         visWaveform.classList.remove('active');
+        voiceBtn.classList.remove('speaking-indicator');
+        if (callback) callback();
       };
-      
+      utterance.onerror = () => {
+        visWaveform.classList.remove('active');
+        voiceBtn.classList.remove('speaking-indicator');
+        if (callback) callback();
+      };
       window.speechSynthesis.speak(utterance);
     }
 
-    // ---------- Global Control Drawer Functions ----------
+    // ---------- Helper Functions ----------
     function toggleDrawer() {
-      const drawer = document.getElementById('settingsDrawer');
-      drawer.classList.toggle('translate-x-full');
+      document.getElementById('settingsDrawer').classList.toggle('translate-x-full');
     }
 
     function usePrompt(promptText) {
@@ -469,43 +493,44 @@
       tx.style.height = (tx.scrollHeight) + 'px';
     }
 
-    // ---------- Helper: Copy Response to Clipboard ----------
     function copyToClipboard(button) {
       const card = button.closest('.relative');
-      const text = card.querySelector('.ai-message-text').innerText;
-      
-      // Support secure iframe execution context clipboard fallback
+      const text = card.querySelector('.markdown-content')?.innerText || card.querySelector('.ai-message-text')?.innerText || '';
       const el = document.createElement('textarea');
       el.value = text;
       document.body.appendChild(el);
       el.select();
       document.execCommand('copy');
       document.body.removeChild(el);
-
       const oldHTML = button.innerHTML;
       button.innerHTML = `<svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>`;
-      setTimeout(() => {
-        button.innerHTML = oldHTML;
-      }, 2000);
+      setTimeout(() => { button.innerHTML = oldHTML; }, 2000);
     }
 
-    // ---------- Explicit Speech play trigger ----------
     function readAloud(button) {
-      const textElement = button.closest('.relative').querySelector('.ai-message-text');
-      if (textElement) {
-        speakText(textElement.innerText);
-      }
+      const textElement = button.closest('.relative').querySelector('.markdown-content') || button.closest('.relative').querySelector('.ai-message-text');
+      if (textElement) speakText(textElement.innerText);
     }
 
-    // ---------- User Message Rendering ----------
+    // ---------- Message Rendering with Markdown ----------
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' })[m] || m);
+    }
+
+    function renderMarkdown(text) {
+      if (typeof marked !== 'undefined' && marked.parse) {
+        return marked.parse(text);
+      }
+      return escapeHtml(text);
+    }
+
     function addUserMessageToUI(text) {
-      const msgDiv = document.createElement('div');
-      msgDiv.className = 'w-full msg-card';
-      msgDiv.innerHTML = `
+      const div = document.createElement('div');
+      div.className = 'w-full msg-card';
+      div.innerHTML = `
         <div class="flex gap-5 flex-row-reverse">
-          <div class="shrink-0">
-            <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold shadow-sm border bg-slate-900 border-slate-800 text-white select-none">ME</div>
-          </div>
+          <div class="shrink-0"><div class="w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold shadow-sm border bg-slate-900 border-slate-800 text-white select-none">ME</div></div>
           <div class="flex flex-col max-w-[80%] items-end">
             <div class="p-5 rounded-[22px] text-[15px] leading-relaxed shadow-sm bg-indigo-600 text-white rounded-tr-none">
               <div class="whitespace-pre-line">${escapeHtml(text)}</div>
@@ -513,38 +538,33 @@
           </div>
         </div>
       `;
-      container.appendChild(msgDiv);
+      container.appendChild(div);
       container.scrollTop = container.scrollHeight;
     }
 
-    // ---------- AI Response Rendering + Smooth Typewriter Effect ----------
-    function addAIMessageToUI(text) {
-      const msgDiv = document.createElement('div');
-      msgDiv.className = 'w-full msg-card';
-      msgDiv.innerHTML = `
+    function addAIMessageToUI(text, speak = true) {
+      const div = document.createElement('div');
+      div.className = 'w-full msg-card';
+      const htmlContent = renderMarkdown(text);
+      div.innerHTML = `
         <div class="flex gap-5">
-          <div class="shrink-0">
-            <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold shadow-sm border bg-white border-slate-200 text-indigo-600 select-none">AI</div>
-          </div>
+          <div class="shrink-0"><div class="w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold shadow-sm border bg-white border-slate-200 text-indigo-600 select-none">AI</div></div>
           <div class="flex flex-col max-w-[80%] items-start">
             <div class="p-5 rounded-[22px] text-[15px] leading-relaxed shadow-sm bg-white border border-slate-100/80 text-slate-700 rounded-tl-none relative group">
-              <div class="whitespace-pre-line ai-message-text typewriter-target">${escapeHtml(text)}</div>
+              <div class="markdown-content ai-message-text typewriter-target">${htmlContent}</div>
               <div class="absolute -bottom-3.5 right-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1.5 z-10 bg-white px-2 py-1 rounded-full border border-slate-200 shadow-sm">
-                <button onclick="readAloud(this)" class="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Speak Aloud">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0l-4-4H6a2 2 0 01-2-2v-4a2 2 0 012-2h2l4-4v12z"/></svg>
-                </button>
-                <button onclick="copyToClipboard(this)" class="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Copy Content">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
-                </button>
+                <button onclick="readAloud(this)" class="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Speak Aloud"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0l-4-4H6a2 2 0 01-2-2v-4a2 2 0 012-2h2l4-4v12z"/></svg></button>
+                <button onclick="copyToClipboard(this)" class="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-800" title="Copy Content"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg></button>
               </div>
             </div>
           </div>
         </div>
       `;
-      container.appendChild(msgDiv);
+      container.appendChild(div);
       container.scrollTop = container.scrollHeight;
 
-      const targetDiv = msgDiv.querySelector('.typewriter-target');
+      // Typewriter effect on the newly added content
+      const targetDiv = div.querySelector('.typewriter-target');
       if (targetDiv) {
         const fullText = targetDiv.innerText;
         targetDiv.innerText = '';
@@ -559,8 +579,7 @@
             setTimeout(typeWriter, speed);
           } else {
             targetDiv.classList.remove('typing');
-            // If Auto Speak Toggle is Checked, announce response automatically on typeWriter complete
-            if (autoSpeakToggle.checked) {
+            if (autoSpeakToggle.checked && speak) {
               speakText(fullText);
             }
           }
@@ -569,21 +588,22 @@
       }
     }
 
-    function escapeHtml(str) {
-      if (!str) return '';
-      return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
+    // ---------- Re‑render existing messages on page load ----------
+    function reRenderExistingMessages() {
+      document.querySelectorAll('.markdown-content').forEach(el => {
+        if (!el.dataset.rendered) {
+          const raw = el.innerText;
+          const rendered = renderMarkdown(raw);
+          el.innerHTML = rendered;
+          el.dataset.rendered = 'true';
+        }
       });
     }
 
-    // ---------- STREAMING_CHUNK: AJAX Message Handlers ----------
+    // ---------- Send Message ----------
     async function sendMessage(message) {
       if (isSubmitting || !message.trim()) return;
       isSubmitting = true;
-      
       sendBtn.disabled = true;
       btnText.innerText = "Thinking...";
       btnIcon.classList.add('animate-spin');
@@ -597,47 +617,29 @@
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 60000);
-        
         const response = await fetch('/ask?ajax=1', {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
           body: new URLSearchParams({ message: message }),
           signal: controller.signal
         });
-        
         clearTimeout(timeoutId);
-        
         let data;
-        try {
-          data = await response.json();
-        } catch(e) {
-          console.error('JSON parse error:', e);
-          window.location.reload();
-          return;
-        }
-        
-        if (!response.ok || data.error) {
-          throw new Error(data.error || `Server error: ${response.status}`);
-        }
-        
+        try { data = await response.json(); } catch(e) { window.location.reload(); return; }
+        if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
         if (data.redirectUrl && data.redirectUrl.trim()) {
           window.open(data.redirectUrl, '_blank');
-          addAIMessageToUI(`🌐 Redirecting you dynamically to ${data.redirectUrl.replace(/^https?:\/\//, '').split('/')[0]}...`);
-        } 
-        else if (data.response && data.response.trim()) {
-          addAIMessageToUI(data.response);
-        } 
-        else {
-          addAIMessageToUI("Command execution completed successfully.");
+          addAIMessageToUI(`🌐 Redirecting you dynamically to ${data.redirectUrl.replace(/^https?:\/\//, '').split('/')[0]}...`, false);
+        } else if (data.response && data.response.trim()) {
+          addAIMessageToUI(data.response, true);
+        } else {
+          addAIMessageToUI("Command execution completed successfully.", true);
         }
       } catch (err) {
         console.error('Send error:', err);
         let errorMsg = err.name === 'AbortError' ? 'Request timed out (60s).' : err.message;
-        addAIMessageToUI(`⚠️ System Error: ${errorMsg}. Please try again.`);
-        voiceStatusSpan.innerText = `Error: ${errorMsg}`;
+        addAIMessageToUI(`⚠️ System Error: ${errorMsg}. Please try again.`, false);
+        footerStatus.innerText = `Error: ${errorMsg}`;
       } finally {
         sendBtn.disabled = false;
         btnText.innerText = "Send";
@@ -648,211 +650,96 @@
       }
     }
 
-    // ---------- STREAMING_CHUNK: Speech Engine Unified Controls ----------
-    function initSpeechEngine() {
-      if (recognitionInstance) return;
+    // ---------- Speech Recognition (Simple Click‑to‑Talk) ----------
+    function startListening() {
+      if (isListening) return;
+      if (recognitionInstance) {
+        recognitionInstance.stop();
+        recognitionInstance = null;
+      }
 
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        voiceStatusSpan.innerText = "Speech API not supported in this browser.";
+        footerStatus.innerText = "Speech API not supported.";
         return;
       }
 
       recognitionInstance = new SpeechRecognition();
-      recognitionInstance.continuous = true;
+      recognitionInstance.continuous = false;  // stop after one utterance
       recognitionInstance.interimResults = true;
       recognitionInstance.lang = 'en-US';
 
       recognitionInstance.onstart = () => {
-        isListeningActive = true;
-        updateVisuals();
-      };
-
-      recognitionInstance.onresult = (event) => {
-        let finalTranscript = '';
-        let interimTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
-        }
-
-        const currentText = (finalTranscript || interimTranscript).trim().toLowerCase();
-        if (!currentText) return;
-
-        // Active State Don Mode (Looking for wake trigger phrase)
-        if (isDonModeOn) {
-          if (!donActivatedState) {
-            if (/\bdon\b/i.test(currentText)) {
-              donActivatedState = true;
-              updateVisuals();
-              tx.value = ''; 
-              
-              if (donTimeoutTimer) clearTimeout(donTimeoutTimer);
-              donTimeoutTimer = setTimeout(() => {
-                resetDonTrigger();
-              }, 7000);
-            }
-          } else {
-            const donIndex = currentText.lastIndexOf('don');
-            let parsedCommand = (donIndex !== -1) ? currentText.substring(donIndex + 3).trim() : currentText;
-            
-            if (parsedCommand) {
-              voiceStatusSpan.innerText = `🎙️ Processing: "${parsedCommand}"`;
-              tx.value = parsedCommand;
-              tx.style.height = 'auto';
-              tx.style.height = tx.scrollHeight + 'px';
-
-              const lastResult = event.results[event.results.length - 1];
-              if (lastResult.isFinal) {
-                if (donTimeoutTimer) clearTimeout(donTimeoutTimer);
-                resetDonTrigger();
-                if (autoSubmitCheck.checked) {
-                  sendMessage(parsedCommand);
-                }
-              }
-            }
-          }
-        } 
-        // Direct Dictation Mode (Voice Button)
-        else {
-          tx.value = currentText;
-          tx.style.height = 'auto';
-          tx.style.height = tx.scrollHeight + 'px';
-          voiceStatusSpan.innerText = `🗣️ Capturing continuous transcription...`;
-
-          const lastResult = event.results[event.results.length - 1];
-          if (lastResult.isFinal && autoSubmitCheck.checked) {
-            stopSpeechEngine();
-            sendMessage(currentText);
-          }
-        }
-      };
-
-      recognitionInstance.onerror = (event) => {
-        console.error("Speech Engine Failure State:", event.error);
-        if (event.error === 'not-allowed') {
-          voiceStatusSpan.innerText = "Microphone access blocked.";
-          donToggle.checked = false;
-          isDonModeOn = false;
-          stopSpeechEngine();
-        }
-      };
-
-      recognitionInstance.onend = () => {
-        isListeningActive = false;
-        resetDonTrigger();
-        updateVisuals();
-        
-        // Infinite restart loops for wake-word continuous listening
-        if (isDonModeOn) {
-          recognitionInstance.start();
-        }
-      };
-    }
-
-    function startSpeechEngine() {
-      initSpeechEngine();
-      if (!isListeningActive && recognitionInstance) {
-        try {
-          recognitionInstance.start();
-        } catch (e) {
-          console.log("Speech recognition running active loop.");
-        }
-      }
-    }
-
-    // ---------- Visualizer Waveform Update helpers ----------
-    function stopSpeechEngine() {
-      if (recognitionInstance && isListeningActive) {
-        recognitionInstance.stop();
-      }
-      resetDonTrigger();
-      updateVisuals();
-    }
-
-    function resetDonTrigger() {
-      donActivatedState = false;
-      if (donTimeoutTimer) clearTimeout(donTimeoutTimer);
-      updateVisuals();
-    }
-
-    function updateVisuals() {
-      voiceBtn.classList.remove('mic-listening', 'wake-listening');
-      donStatusSpanFooter.classList.add('hidden');
-      visWaveform.classList.remove('active');
-      inlineWaveform.classList.add('hidden');
-
-      if (!isListeningActive) {
-        voiceBtn.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>`;
-        modeIndicator.textContent = 'Voice Idle';
-        modeIndicator.className = "text-[11px] font-bold text-slate-500 uppercase tracking-wider bg-slate-100 px-3 py-1.5 rounded-full";
-        voiceStatusSpan.innerText = '';
-        return;
-      }
-
-      if (isDonModeOn) {
-        inlineWaveform.classList.remove('hidden');
-        if (donActivatedState) {
-          // Trigger voice listener high interactive animation
-          voiceBtn.classList.add('mic-listening');
-          visWaveform.classList.add('active');
-          inlineWaveform.classList.add('active');
-          voiceBtn.innerHTML = `<svg class="w-5 h-5 text-white animate-pulse" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0l-4-4H6a2 2 0 01-2-2v-4a2 2 0 012-2h2l4-4v12z"/></svg>`;
-          donStatusSpanFooter.classList.remove('hidden');
-          donStatusSpanFooter.innerText = '🔊 Listening to Command...';
-          modeIndicator.textContent = 'DON TRIGGERED';
-          modeIndicator.className = "text-[11px] font-bold text-red-600 uppercase tracking-wider bg-red-50 border border-red-100 px-3 py-1.5 rounded-full";
-        } else {
-          // Passive Listening state
-          voiceBtn.classList.add('wake-listening');
-          voiceBtn.innerHTML = `<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>`;
-          donStatusSpanFooter.classList.remove('hidden');
-          donStatusSpanFooter.innerText = '🎤 Watch mode on ("Don" to wake)';
-          modeIndicator.textContent = 'WATCHING';
-          modeIndicator.className = "text-[11px] font-bold text-emerald-600 uppercase tracking-wider bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-full";
-        }
-      } else {
-        // Direct Dictation
+        isListening = true;
         voiceBtn.classList.add('mic-listening');
         visWaveform.classList.add('active');
         inlineWaveform.classList.remove('hidden');
         inlineWaveform.classList.add('active');
-        voiceBtn.innerHTML = `<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0l-4-4H6a2 2 0 01-2-2v-4a2 2 0 012-2h2l4-4v12z"/></svg>`;
-        modeIndicator.textContent = 'RECORDING';
-        modeIndicator.className = "text-[11px] font-bold text-indigo-600 uppercase tracking-wider bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-full";
+        footerStatus.innerText = '🎤 Listening...';
+      };
+
+      recognitionInstance.onresult = (event) => {
+        let final = '';
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) final += transcript;
+          else interim += transcript;
+        }
+        const text = final || interim;
+        if (text.trim()) {
+          tx.value = text;
+          tx.style.height = 'auto';
+          tx.style.height = (tx.scrollHeight) + 'px';
+          footerStatus.innerText = `📝 "${text}"`;
+        }
+        if (final && autoSubmitCheck.checked) {
+          // Auto‑send after final result
+          stopListening();
+          sendMessage(final);
+        }
+      };
+
+      recognitionInstance.onerror = (event) => {
+        console.error("Speech error:", event.error);
+        footerStatus.innerText = `❌ ${event.error}`;
+        stopListening();
+      };
+
+      recognitionInstance.onend = () => {
+        stopListening();
+      };
+
+      recognitionInstance.start();
+    }
+
+    function stopListening() {
+      if (recognitionInstance) {
+        try { recognitionInstance.stop(); } catch(e) {}
+        recognitionInstance = null;
+      }
+      isListening = false;
+      voiceBtn.classList.remove('mic-listening');
+      visWaveform.classList.remove('active');
+      inlineWaveform.classList.remove('active');
+      inlineWaveform.classList.add('hidden');
+      if (!footerStatus.innerText.includes('Error')) {
+        footerStatus.innerText = '';
       }
     }
 
-    // ---------- Don Mode Switch Action ----------
-    donToggle.addEventListener('change', (e) => {
-      isDonModeOn = e.target.checked;
-      stopSpeechEngine();
-      if (isDonModeOn) {
-        startSpeechEngine();
-      }
-    });
-
-    // ---------- Voice Dictation Button Switch ----------
+    // ---------- Event Listeners ----------
     voiceBtn.addEventListener('click', () => {
-      if (isListeningActive) {
-        stopSpeechEngine();
+      if (isListening) {
+        stopListening();
       } else {
-        if (isDonModeOn) {
-          donActivatedState = true;
-          startSpeechEngine();
-          updateVisuals();
-        } else {
-          startSpeechEngine();
-        }
+        startListening();
       }
     });
 
-    // ---------- Interactive Form Interactions ----------
+    // If the user types and presses Enter or clicks Send, stop listening
     sendBtn.addEventListener('click', () => {
+      if (isListening) stopListening();
       const msg = tx.value.trim();
       if (msg) sendMessage(msg);
     });
@@ -860,6 +747,7 @@
     tx.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        if (isListening) stopListening();
         const msg = tx.value.trim();
         if (msg) sendMessage(msg);
       }
@@ -870,8 +758,12 @@
       this.style.height = (this.scrollHeight) + 'px';
     });
 
-    // On-load animation routines
+    // ---------- Init ----------
     document.addEventListener('DOMContentLoaded', () => {
+      reRenderExistingMessages();
+      tx.focus();
+
+      // Handle typewriter for initial messages (if any)
       const target = document.querySelector('.typewriter-target');
       if (target) {
         const fullText = target.innerText;
@@ -887,11 +779,18 @@
             setTimeout(typeWriter, speed);
           } else {
             target.classList.remove('typing');
+            if (autoSpeakToggle.checked) speakText(fullText);
           }
         }
         typeWriter();
       }
-      container.scrollTop = container.scrollHeight;
+
+      // Wake lock to prevent screen dimming
+      if ('wakeLock' in navigator) {
+        try {
+          navigator.wakeLock.request('screen').then(lock => console.log('🔒 Wake lock acquired')).catch(() => {});
+        } catch(e) {}
+      }
     });
 
     <% if (redirectUrl) { %>

@@ -1,0 +1,5 @@
+2026/06/26-12:37:49.413 4150 Creating DB C:\Users\amark\OneDrive\Desktop\MCP\server\.gmail_profile_headless\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/06/26-12:37:49.517 4150 Reusing MANIFEST C:\Users\amark\OneDrive\Desktop\MCP\server\.gmail_profile_headless\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/06/26-12:37:50.719 3b88 Level-0 table #5: started
+2026/06/26-12:37:50.730 3b88 Level-0 table #5: 682783 bytes OK
+2026/06/26-12:37:50.732 3b88 Delete type=0 #3

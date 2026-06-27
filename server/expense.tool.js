@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
-
+import { notify } from './desktop_notification.tool.js';
 const EXPENSES_FILE = path.join(process.cwd(), 'data', 'expenses.json');
 
 async function ensureExpensesFile() {
@@ -17,20 +17,20 @@ async function ensureExpensesFile() {
   }
 }
 
-async function loadExpenses() {
+export async function loadExpenses() {
   await ensureExpensesFile();
   const data = await fs.readFile(EXPENSES_FILE, 'utf8');
   return JSON.parse(data);
 }
 
-async function saveExpenses(expenses) {
+export async function saveExpenses(expenses) {
   await fs.writeFile(EXPENSES_FILE, JSON.stringify(expenses, null, 2));
 }
 
 export async function logExpense(amount, category, description = '', date = null) {
   try {
     const expenses = await loadExpenses();
-    
+
     const expense = {
       id: randomUUID(),
       amount: parseFloat(amount),
@@ -42,7 +42,7 @@ export async function logExpense(amount, category, description = '', date = null
 
     expenses.push(expense);
     await saveExpenses(expenses);
-
+    await notify('💰 Expense Logged', `${category}: $${amount} – ${description || 'No description'}`);
     return {
       content: [{
         type: "text",
@@ -64,13 +64,13 @@ export async function getSpendingSummary(period = 'month', year = null, month = 
   try {
     const expenses = await loadExpenses();
     const now = new Date();
-    
+
     let filteredExpenses = expenses;
 
     if (period === 'month') {
       const targetYear = year || now.getFullYear();
       const targetMonth = month !== null ? month : now.getMonth();
-      
+
       filteredExpenses = expenses.filter(e => {
         const date = new Date(e.date);
         return date.getFullYear() === targetYear && date.getMonth() === targetMonth;
@@ -98,7 +98,7 @@ export async function getSpendingSummary(period = 'month', year = null, month = 
 
     // Calculate totals
     const total = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
-    
+
     // Group by category
     const byCategory = {};
     filteredExpenses.forEach(e => {
@@ -108,18 +108,18 @@ export async function getSpendingSummary(period = 'month', year = null, month = 
       byCategory[e.category] += e.amount;
     });
 
-    const periodLabel = period === 'month' 
+    const periodLabel = period === 'month'
       ? new Date(year || now.getFullYear(), month !== null ? month : now.getMonth()).toLocaleString('default', { month: 'long', year: 'numeric' })
       : period === 'year'
-      ? (year || now.getFullYear()).toString()
-      : 'Last 7 days';
+        ? (year || now.getFullYear()).toString()
+        : 'Last 7 days';
 
     let output = `💰 **Spending Summary - ${periodLabel}**\n\n`;
     output += `**Total Spent:** $${total.toFixed(2)}\n`;
     output += `**Transactions:** ${filteredExpenses.length}\n`;
     output += `**Average:** $${(total / filteredExpenses.length).toFixed(2)}\n\n`;
     output += `**By Category:**\n`;
-    
+
     Object.entries(byCategory)
       .sort(([, a], [, b]) => b - a)
       .forEach(([category, amount]) => {
@@ -159,7 +159,7 @@ export async function listExpenses(limit = 20, category = null) {
       return {
         content: [{
           type: "text",
-          text: category 
+          text: category
             ? `💰 No expenses found in category: ${category}`
             : `💰 No expenses logged yet. Start tracking your spending!`
         }]
@@ -167,7 +167,7 @@ export async function listExpenses(limit = 20, category = null) {
     }
 
     let output = `💰 **Recent Expenses**${category ? ` [${category}]` : ''}\n\n`;
-    
+
     expenses.slice(0, limit).forEach((expense, i) => {
       output += `${i + 1}. $${expense.amount.toFixed(2)} - ${expense.category}\n`;
       if (expense.description) output += `   ${expense.description}\n`;
@@ -233,7 +233,7 @@ export async function deleteExpense(expenseId) {
 export async function getExpenseStats() {
   try {
     const expenses = await loadExpenses();
-    
+
     if (expenses.length === 0) {
       return {
         content: [{
@@ -245,7 +245,7 @@ export async function getExpenseStats() {
 
     const total = expenses.reduce((sum, e) => sum + e.amount, 0);
     const average = total / expenses.length;
-    
+
     // Find highest and lowest
     const highest = expenses.reduce((max, e) => e.amount > max.amount ? e : max);
     const lowest = expenses.reduce((min, e) => e.amount < min.amount ? e : min);
@@ -289,7 +289,7 @@ export async function getExpenseStats() {
 export async function exportExpenses(format = 'csv') {
   try {
     const expenses = await loadExpenses();
-    
+
     if (expenses.length === 0) {
       return {
         content: [{

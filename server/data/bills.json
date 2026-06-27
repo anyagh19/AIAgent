@@ -1,0 +1,29 @@
+[
+  {
+    "id": "1782372911807",
+    "name": "Electricity Bill",
+    "amount": 2000,
+    "dueDate": "2024-06-22T00:00:00.000Z",
+    "category": "bills",
+    "recurrence": "monthly",
+    "active": true
+  },
+  {
+    "id": "1782373013079",
+    "name": "Electricity bill",
+    "amount": 300,
+    "dueDate": "2024-06-26T00:00:00.000Z",
+    "category": "bills",
+    "recurrence": "monthly",
+    "active": true
+  },
+  {
+    "id": "1782373402479",
+    "name": "Car bill",
+    "amount": 2000,
+    "dueDate": "2026-06-26T00:00:00.000Z",
+    "category": "bills",
+    "recurrence": "monthly",
+    "active": true
+  }
+]

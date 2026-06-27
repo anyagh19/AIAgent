@@ -1,0 +1,6 @@
+2026/06/26-13:02:11.194 37d4 Reusing MANIFEST C:\Users\amark\OneDrive\Desktop\MCP\server\.gmail_profile_headless\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/06/26-13:02:11.196 37d4 Recovering log #4
+2026/06/26-13:02:11.197 37d4 Reusing old log C:\Users\amark\OneDrive\Desktop\MCP\server\.gmail_profile_headless\Default\EdgeCoupons/coupons_data.db/000004.log 
+2026/06/26-13:02:13.717 1980 Level-0 table #8: started
+2026/06/26-13:02:13.731 1980 Level-0 table #8: 682953 bytes OK
+2026/06/26-13:02:13.734 1980 Delete type=0 #4
